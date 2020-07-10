@@ -53,7 +53,6 @@ TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
-DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -71,35 +70,62 @@ static void MX_USART1_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+
+
+
 uint8_t midiBuf,noteBuf,velBuf,curPos,status=0;
 volatile uint8_t noteOn[4],noteCode[4],noteVel[4],noteEnvCnt[4];
+
+void setNote(uint8_t note){
+	uint8_t curVoice=0;
+	while(noteOn[curVoice]!=0){curVoice++;
+	if(curVoice==4){return;}}
+	
+	noteOn[curVoice]=1;
+	noteCode[curVoice]=note;
+	noteEnvCnt[curVoice]=0;
+	noteVel[curVoice]=velBuf;
+	
+	return;
+}
+
+void releaseNote(uint8_t note){
+	uint8_t curVoice=0;.
+	while(noteCode[curVoice]!=note){curVoice++;
+	if(curVoice==4){return;}}
+	noteOn[curVoice]=0;
+	return;
+}
 
 void HAL_UART_IRQHandler(UART_HandleTypeDef * huart){
 			if(curPos==0){
 				if(midiBuf>=0x80){
 					status=midiBuf;
 					HAL_UART_Receive_IT(&huart1,&noteBuf,1);
+					
 				}
 				else{
+				status&=0xf0;
+				if(status==0x90){
 				noteBuf=midiBuf;
 				curPos=1;}
+				}
 			}
 			if(curPos==1){
 				
 				HAL_UART_Receive_IT(&huart1,&velBuf,1);
+				curPos=2;
 			}
 			else if(curPos==2){
+				curPos=0;
 				HAL_UART_Receive_IT(&huart1,&midiBuf,1);
+				
 				
 			}
 		
 		
 }
 
-
-void setNote(uint8_t note){
-	
-}
 
 	
 /* USER CODE END PFP */
@@ -621,9 +647,6 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel4_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
-  /* DMA1_Channel5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
 
 }
 
