@@ -71,7 +71,37 @@ static void MX_USART1_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+uint8_t midiBuf,noteBuf,velBuf,curPos,status=0;
+volatile uint8_t noteOn[4],noteCode[4],noteVel[4],noteEnvCnt[4];
 
+void HAL_UART_IRQHandler(UART_HandleTypeDef * huart){
+			if(curPos==0){
+				if(midiBuf>=0x80){
+					status=midiBuf;
+					HAL_UART_Receive_IT(&huart1,&noteBuf,1);
+				}
+				else{
+				noteBuf=midiBuf;
+				curPos=1;}
+			}
+			if(curPos==1){
+				
+				HAL_UART_Receive_IT(&huart1,&velBuf,1);
+			}
+			else if(curPos==2){
+				HAL_UART_Receive_IT(&huart1,&midiBuf,1);
+				
+			}
+		
+		
+}
+
+
+void setNote(uint8_t note){
+	
+}
+
+	
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -117,8 +147,8 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-	uint8_t midiBuf[midiBufSize]={0};
-	HAL_UART_Receive_DMA(&huart1,&midiBuf[0],midiBufSize);
+	
+	HAL_UART_Receive_IT(&huart1,&midiBuf,1);
 	
 	HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_1);
 	HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_2);
@@ -129,17 +159,14 @@ int main(void)
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_3);
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_4);
 	
-	uint8_t noteCodes[4];
-	uint8_t noteOn[4]={0,0,0,0};
-
-	uint8_t noteEnvCounter[4];
+	
 	uint16_t ADSRvals[8]={180,2048,2048,180,180,2048,2048,180};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease
 	uint16_t filterInf=128;
-	uint16_t maxInf=4096;//remeber to normalise filter attack by the influence value (*filterInf/4096)
+	
 	uint8_t filterOffset=0;
 	uint8_t prevStatus=0;
 	uint8_t curEnv,curVoice=0;
-	incrementEnvVal(0,4095,0xffff,0);
+	
 	
 
   /* USER CODE END 2 */
@@ -149,13 +176,7 @@ int main(void)
 	
   while (1)
   {
-		if(midiBuf[0]!=0){
-			prevStatus=midiParse(&(midiBuf[0]),prevStatus,&noteCodes[0],&noteOn[0],&noteEnvCounter[0]);
-			
-			HAL_UART_DMAStop(&huart1);
-			memset(&midiBuf[0],0,midiBufSize);
-			HAL_UART_Receive_DMA(&huart1,&midiBuf[0],midiBufSize);
-		}
+		
 		if(curEnv<8){
 			curVoice=curEnv%4;
 			if(noteOn[curVoice]!=0){
