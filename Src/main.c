@@ -71,62 +71,115 @@ static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
-
+struct voice{
+	uint8_t noteOn;
+	uint8_t noteCode;
+	uint8_t noteVel;
+	uint8_t noteEnvCnt;
+	uint16_t loudnessPwm;
+	uint16_t filterPwm;
+	volatile unsigned int * loudnessChannel;
+	volatile unsigned int * filterChannel;
+};
 
 uint8_t midiBuf,noteBuf,velBuf,curPos,status=0;
-volatile uint8_t noteOn[4],noteCode[4],noteVel[4],noteEnvCnt[4];
+volatile struct voice VoiceArray[4];
+
+void initVoices(){
+	for(uint8_t v=0;v<4;v++){
+		VoiceArray[v].noteOn=0;
+		VoiceArray[v].noteCode=0;
+		VoiceArray[v].noteVel=0;
+		VoiceArray[v].noteEnvCnt=0;
+		VoiceArray[v].loudnessChannel=&(TIM4[v].CCR1);
+		VoiceArray[v].loudnessChannel=&(TIM3[v].CCR1);
+	}
+	
+}
 
 void setNote(uint8_t note){
 	uint8_t curVoice=0;
-	while(noteOn[curVoice]!=0){curVoice++;
+	while(VoiceArray[curVoice].noteOn!=0){curVoice++;
 	if(curVoice==4){return;}}
 	
-	noteOn[curVoice]=1;
-	noteCode[curVoice]=note;
-	noteEnvCnt[curVoice]=0;
-	noteVel[curVoice]=velBuf;
+	VoiceArray[curVoice].noteOn=1;
+	VoiceArray[curVoice].noteCode=note;
+	VoiceArray[curVoice].noteEnvCnt=0;
+	VoiceArray[curVoice].noteVel=velBuf;
 	
 	return;
 }
 
 void releaseNote(uint8_t note){
-	uint8_t curVoice=0;.
-	while(noteCode[curVoice]!=note){curVoice++;
-	if(curVoice==4){return;}}
-	noteOn[curVoice]=0;
+	uint8_t curVoice=0;
+	while(VoiceArray[curVoice].noteCode!=note){
+		curVoice++;
+		if(curVoice==4){return;}}
+	VoiceArray[curVoice].noteOn=0;
 	return;
 }
 
-void HAL_UART_IRQHandler(UART_HandleTypeDef * huart){
-			if(curPos==0){
-				if(midiBuf>=0x80){
+void USART1_IRQHandler(void){
+			switch(curPos){
+			case 0:{if(midiBuf>=0x80){
 					status=midiBuf;
-					HAL_UART_Receive_IT(&huart1,&noteBuf,1);
-					
+					if(status==0x90||status==0x80){
+						HAL_UART_Receive_IT(&huart1,&noteBuf,1);
+						status&=0xf0;
+						curPos=1;}
 				}
 				else{
-				status&=0xf0;
-				if(status==0x90){
-				noteBuf=midiBuf;
-				curPos=1;}
-				}
+						
+					if(status==0x90||status==0x80){
+						noteBuf=midiBuf;
+						HAL_UART_Receive_IT(&huart1,&velBuf,1);
+						curPos=2;}
+					}
+			break;
 			}
-			if(curPos==1){
+			case 1:{
 				
-				HAL_UART_Receive_IT(&huart1,&velBuf,1);
-				curPos=2;
+					HAL_UART_Receive_IT(&huart1,&velBuf,1);
+					curPos=2;
+			break;
 			}
-			else if(curPos==2){
+			
+			case 2:{
 				curPos=0;
 				HAL_UART_Receive_IT(&huart1,&midiBuf,1);
-				
-				
+				switch(status){
+					case 0x90:{
+						setNote(noteBuf);
+						break;}
+					case 0x80:{
+						releaseNote(noteBuf);
+						break;}}
+			break;
 			}
-		
-		
+		}
+		return;
 }
+volatile uint8_t EnvSampleFlag=0;
+void TIM2_IRQHandler(void){EnvSampleFlag=1;}
 
-
+void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16_t lowerLim){
+	uint16_t curVal=*(VoiceArray[curVoice].loudnessChannel);
+	uint16_t valueToBe=curVal+Change;
+	if(valueToBe<lowerLim){
+		if(curVal==lowerLim){return;}
+		else{
+			valueToBe=lowerLim;
+		}
+	}
+	else if(valueToBe>upperLim){
+		if(curVal==upperLim){return;}
+		else{
+			valueToBe=upperLim;
+		}
+	}
+	*(VoiceArray[curVoice].loudnessChannel)=valueToBe;
+	return;	
+}
 	
 /* USER CODE END PFP */
 
@@ -186,12 +239,10 @@ int main(void)
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_4);
 	
 	
-	uint16_t ADSRvals[8]={180,2048,2048,180,180,2048,2048,180};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease
-	uint16_t filterInf=128;
-	
-	uint8_t filterOffset=0;
-	uint8_t prevStatus=0;
-	uint8_t curEnv,curVoice=0;
+	uint16_t ADSRvals[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
+	initVoices();
+
+	uint8_t curVoice=0;
 	
 	
 
@@ -203,30 +254,43 @@ int main(void)
   while (1)
   {
 		
-		if(curEnv<8){
-			curVoice=curEnv%4;
-			if(noteOn[curVoice]!=0){
-				if((noteEnvCounter[curVoice]<ADSRvals[1+filterOffset])){//if counter is less than decay value
-						incrementEnvVal(curVoice,ADSRvals[0+filterOffset],maxInf,0);//iterate pwm value by attack value
+		if(curVoice<4){
+			if(VoiceArray[curVoice].loudnessPwm>0){
+				if(VoiceArray[curVoice].noteOn!=0){//attack
+							if(VoiceArray[curVoice].noteEnvCnt<=ADSRvals[1]){
+								incrementEnvVal(curVoice,ADSRvals[0],0xffff,0);
+								VoiceArray[curVoice].noteEnvCnt++;
+							}
+							else{//releasing to sustain
+								if(VoiceArray[curVoice].loudnessPwm!=ADSRvals[2]){
+								incrementEnvVal(curVoice,ADSRvals[3],0xffff,ADSRvals[2]);
+								}	
+							}
 				}
-				else{
-					incrementEnvVal(curVoice,-ADSRvals[3+filterOffset],maxInf,ADSRvals[2+filterOffset]);
+				else{//releasing to nuthin
+					incrementEnvVal(curVoice,ADSRvals[3],0xffff,0);
+				}}
+			if(VoiceArray[curVoice].filterPwm>0){//now the filterPWM
+				if(VoiceArray[curVoice].noteOn!=0){//attack
+							if(VoiceArray[curVoice].noteEnvCnt<=ADSRvals[5]){
+								incrementEnvVal(curVoice,ADSRvals[4],0xffff,0);
+								VoiceArray[curVoice].noteEnvCnt++;
+							}
+							else{//releasing to sustain
+								if(VoiceArray[curVoice].loudnessPwm!=ADSRvals[6]){
+								incrementEnvVal(curVoice,ADSRvals[7],0xffff,ADSRvals[6]);
+								}	
+							}
 				}
-			}
-			else{
-				if(incrementEnvVal(curVoice,-ADSRvals[3+filterOffset],maxInf,0)){noteEnvCounter[curVoice]=0;}
-				
-			}
-			noteEnvCounter[curVoice]++;
-			curVoice++;
-			if(curVoice>4){filterOffset=4;
-			maxInf=filterInf;}
+				else{//releasing to nuthin
+					incrementEnvVal(curVoice,ADSRvals[7],0xffff,0);
+				}}
 			
 		}
-		else if(EnvComputeFlag==1){
-			curEnv=0;
-			filterOffset=0;
-			maxInf=0xffff;
+		else if(EnvSampleFlag==1){
+			curVoice=0;
+			
+			
 		}
     /* USER CODE END WHILE */
 
