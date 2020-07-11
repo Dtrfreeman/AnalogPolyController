@@ -76,8 +76,6 @@ struct voice{
 	uint8_t noteCode;
 	uint8_t noteVel;
 	uint8_t noteEnvCnt;
-	uint16_t loudnessPwm;
-	uint16_t filterPwm;
 	volatile unsigned int * loudnessChannel;
 	volatile unsigned int * filterChannel;
 };
@@ -86,15 +84,26 @@ uint8_t midiBuf,noteBuf,velBuf,curPos,status=0;
 volatile struct voice VoiceArray[4];
 
 void initVoices(){
+	
+	VoiceArray[0].loudnessChannel=(&(TIM4->CCR1));
+	VoiceArray[0].filterChannel=(&(TIM3->CCR1));
+	
+	VoiceArray[1].loudnessChannel=(&(TIM4->CCR2));
+	VoiceArray[1].filterChannel=(&(TIM3->CCR2));
+	
+	VoiceArray[2].loudnessChannel=(&(TIM4->CCR2));
+	VoiceArray[2].filterChannel=(&(TIM3->CCR2));
+	
+	VoiceArray[3].loudnessChannel=(&(TIM4->CCR2));
+	VoiceArray[3].filterChannel=(&(TIM3->CCR2));
 	for(uint8_t v=0;v<4;v++){
 		VoiceArray[v].noteOn=0;
 		VoiceArray[v].noteCode=0;
 		VoiceArray[v].noteVel=0;
 		VoiceArray[v].noteEnvCnt=0;
-		VoiceArray[v].loudnessChannel=&(TIM4[v].CCR1);
-		VoiceArray[v].loudnessChannel=&(TIM3[v].CCR1);
+		*VoiceArray[v].loudnessChannel=0;
+		*VoiceArray[v].filterChannel=0;
 	}
-	
 }
 
 void setNote(uint8_t note){
@@ -160,10 +169,17 @@ void USART1_IRQHandler(void){
 		return;
 }
 volatile uint8_t EnvSampleFlag=0;
-void TIM2_IRQHandler(void){EnvSampleFlag=1;}
+void TIM2_IRQHandler(void){EnvSampleFlag=1;return;}
 
 void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16_t lowerLim){
-	uint16_t curVal=*(VoiceArray[curVoice].loudnessChannel);
+	
+	
+	volatile unsigned int * Channel;
+	if(curVoice<4){Channel=VoiceArray[curVoice].loudnessChannel;}
+	else if(curVoice<8){Channel=VoiceArray[curVoice-4].filterChannel;}
+	else{return;}
+	
+	uint16_t curVal=*(Channel);
 	uint16_t valueToBe=curVal+Change;
 	if(valueToBe<lowerLim){
 		if(curVal==lowerLim){return;}
@@ -177,7 +193,9 @@ void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16
 			valueToBe=upperLim;
 		}
 	}
-	*(VoiceArray[curVoice].loudnessChannel)=valueToBe;
+	*(Channel)=valueToBe;
+	
+	
 	return;	
 }
 	
@@ -237,7 +255,7 @@ int main(void)
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_2);
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_3);
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_4);
-	
+	HAL_TIM_Base_Start_IT(&htim2);
 	
 	uint16_t ADSRvals[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	initVoices();
@@ -255,37 +273,37 @@ int main(void)
   {
 		
 		if(curVoice<4){
-			if(VoiceArray[curVoice].loudnessPwm>0){
+			if(*(VoiceArray[curVoice].loudnessChannel)>0){
 				if(VoiceArray[curVoice].noteOn!=0){//attack
 							if(VoiceArray[curVoice].noteEnvCnt<=ADSRvals[1]){
 								incrementEnvVal(curVoice,ADSRvals[0],0xffff,0);
 								VoiceArray[curVoice].noteEnvCnt++;
 							}
 							else{//releasing to sustain
-								if(VoiceArray[curVoice].loudnessPwm!=ADSRvals[2]){
-								incrementEnvVal(curVoice,ADSRvals[3],0xffff,ADSRvals[2]);
+								if(*(VoiceArray[curVoice].loudnessChannel)!=ADSRvals[2]){
+								incrementEnvVal(curVoice,-ADSRvals[3],0xffff,ADSRvals[2]);
 								}	
 							}
 				}
 				else{//releasing to nuthin
-					incrementEnvVal(curVoice,ADSRvals[3],0xffff,0);
+					incrementEnvVal(curVoice,-ADSRvals[3],0xffff,0);
 				}}
-			if(VoiceArray[curVoice].filterPwm>0){//now the filterPWM
+			if(*(VoiceArray[curVoice].filterChannel)>0){//now the filterPWM
 				if(VoiceArray[curVoice].noteOn!=0){//attack
 							if(VoiceArray[curVoice].noteEnvCnt<=ADSRvals[5]){
-								incrementEnvVal(curVoice,ADSRvals[4],0xffff,0);
+								incrementEnvVal(curVoice+4,ADSRvals[4],ADSRvals[8],0);
 								VoiceArray[curVoice].noteEnvCnt++;
 							}
 							else{//releasing to sustain
-								if(VoiceArray[curVoice].loudnessPwm!=ADSRvals[6]){
-								incrementEnvVal(curVoice,ADSRvals[7],0xffff,ADSRvals[6]);
+								if(*(VoiceArray[curVoice].filterChannel)!=ADSRvals[6]){
+								incrementEnvVal(curVoice+4,-ADSRvals[7],ADSRvals[8],ADSRvals[6]);
 								}	
 							}
 				}
 				else{//releasing to nuthin
-					incrementEnvVal(curVoice,ADSRvals[7],0xffff,0);
+					incrementEnvVal(curVoice+4,-ADSRvals[7],0xffff,0);
 				}}
-			
+			curVoice++;
 		}
 		else if(EnvSampleFlag==1){
 			curVoice=0;
@@ -517,9 +535,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 512;
+  htim2.Init.Prescaler = 1024;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 140;
+  htim2.Init.Period = 240;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
