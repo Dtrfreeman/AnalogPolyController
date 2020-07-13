@@ -184,6 +184,7 @@ void USART1_IRQHandler(void){
 						HAL_UART_Receive_DMA(&huart1,&noteBuf,1);
 						status&=0xf0;
 						curPos=1;}
+					
 				}
 				else{
 						
@@ -248,6 +249,14 @@ void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16
 	return;	
 }
 	
+
+void WriteDac(uint8_t Channel,uint16_t Data){
+	
+	Data&=0x0fff;
+	Data|=(Channel&0x0f);
+	HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00C0,&Data,2);
+	
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -311,7 +320,7 @@ int main(void)
 
 	uint8_t curVoice=0;
 	
-	
+	uint16_t DacTestTmr=0;
 
   /* USER CODE END 2 */
 
@@ -359,6 +368,12 @@ int main(void)
 			
 			
 		}
+		if((DacTestTmr&0x0fff)==0x0fff){
+			
+			WriteDac(0,DacTestTmr);
+			if(DacTestTmr==65535){DacTestTmr=0;}
+		}
+		DacTestTmr++;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
