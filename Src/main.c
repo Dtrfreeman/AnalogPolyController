@@ -20,6 +20,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "math.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -119,6 +120,18 @@ void initVoices(){
 		*VoiceArray[v].loudnessChannel=0;
 		*VoiceArray[v].filterChannel=0;
 	}
+}
+double fError[4]={0,0,0,0};
+double eError[4]={0,0,0,0};
+/*
+f error is offset at zero
+e error is bits per octave error 
+*/
+void noteCodeToDac(uint8_t curVoice){
+	
+	uint16_t dataBuf=round(log2((8.17525*VoiceArray[curVoice].noteCode)/(32.7+fError[curVoice]))/(683+eError[curVoice]));
+	setDacBufVal(curVoice,&dataBuf);
+	return;
 }
 
 void setNote(uint8_t note){
