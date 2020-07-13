@@ -250,11 +250,13 @@ void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16
 }
 	
 
-void WriteDac(uint8_t Channel,uint16_t Data){
+void WriteDac(uint8_t Channel,uint16_t *pData){
+	uint8_t DataArry[2]={((*pData>>8)|(Channel<<2))&0x0f,*pData&0xff};
 	
-	Data&=0x0fff;
-	Data|=(Channel&0x0f);
-	HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00C0,&Data,2);
+	
+	
+	//HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00C0,(uint8_t *)&DataArry,2);
+	HAL_I2C_Master_Transmit(&hi2c2,0x00c0,(uint8_t *)&DataArry,2,1);
 	
 }
 /* USER CODE END PFP */
@@ -321,7 +323,8 @@ int main(void)
 	uint8_t curVoice=0;
 	
 	uint16_t DacTestTmr=0;
-
+	uint16_t DacTestData=0;
+	HAL_I2C_Init(&hi2c2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -368,10 +371,12 @@ int main(void)
 			
 			
 		}
-		if((DacTestTmr&0x0fff)==0x0fff){
+		if(DacTestTmr==0x0fff){
+			DacTestTmr=0;
+			DacTestData++;
+			WriteDac(0,&DacTestData);
+			if(DacTestData==0xffff){DacTestData=0;}
 			
-			WriteDac(0,DacTestTmr);
-			if(DacTestTmr==65535){DacTestTmr=0;}
 		}
 		DacTestTmr++;
     /* USER CODE END WHILE */
