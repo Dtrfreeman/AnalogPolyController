@@ -72,6 +72,20 @@ static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
+
+volatile uint8_t DacData[8];
+void setDacBufVal(uint8_t channel,uint16_t * dataIn){
+	channel=channel%4;
+	DacData[channel<<1]=((*dataIn)>>8)&0x0f;
+	DacData[(channel<<1)+1]=(*dataIn)&0xff;
+}
+	
+void writeToDac(){
+	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,&DacData[0],0x0008,1);
+	//frustratingly this is blocking.
+}
+
+
 struct voice{
 	uint8_t noteOn;
 	uint8_t noteCode;
@@ -249,16 +263,6 @@ void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16
 	return;	
 }
 	
-
-void WriteDac(uint8_t Channel,uint16_t *pData){
-	uint8_t DataArry[2]={((*pData>>8)|(Channel<<2))&0x0f,*pData&0xff};
-	
-	
-	
-	//HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00C0,(uint8_t *)&DataArry,2);
-	HAL_I2C_Master_Transmit(&hi2c2,0x00c0,(uint8_t *)&DataArry,2,1);
-	
-}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -321,10 +325,13 @@ int main(void)
 	initVoices();
 
 	uint8_t curVoice=0;
-	
-	uint16_t DacTestTmr=0;
-	uint16_t DacTestData=0;
+	HAL_DMA_Init(&hdma_i2c2_tx);
 	HAL_I2C_Init(&hi2c2);
+	for(uint8_t i=0;i<8;i++){
+		HAL_I2C_IsDeviceReady(&hi2c2,0x00c0|i<<1,1,2);
+	
+	}
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -371,14 +378,7 @@ int main(void)
 			
 			
 		}
-		if(DacTestTmr==0x0fff){
-			DacTestTmr=0;
-			DacTestData++;
-			WriteDac(0,&DacTestData);
-			if(DacTestData==0xffff){DacTestData=0;}
-			
-		}
-		DacTestTmr++;
+	
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
