@@ -159,13 +159,14 @@ void releaseNote(uint8_t note){
 void midiParse(){switch(curPos){
 			case 0:{if(midiBuf>=0x80){
 					status=midiBuf;
+					status&=0xf0;
 					if(status==0x90||status==0x80){
 						HAL_UART_DMAStop(&huart1);
 						HAL_UART_Receive_DMA(&huart1,&noteBuf,1);
-						status&=0xf0;
+					
 						curPos=1;}
-				}
-				else{
+					}
+					else{
 						
 					if(status==0x90||status==0x80){
 						noteBuf=midiBuf;
@@ -242,7 +243,7 @@ void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16
 			valueToBe=upperLim;
 		}
 	}
-	*(Channel)=valueToBe;
+	*(Channel)=valueToBe/4;
 	
 	
 	return;	
@@ -309,6 +310,10 @@ int main(void)
 	uint16_t ADSRvals[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint16_t ADSRBuf[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	initVoices();
+	
+	*VoiceArray[0].loudnessChannel=256;
+	*VoiceArray[0].filterChannel=256;
+	
 
 	uint8_t curVoice=0;
 	HAL_DMA_Init(&hdma_i2c2_tx);
@@ -660,7 +665,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4096;
+  htim2.Init.Period = 1024;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -723,7 +728,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 1;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 4096;
+  htim3.Init.Period = 1024;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -786,7 +791,7 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 1;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 4096;
+  htim4.Init.Period = 1024;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
@@ -808,7 +813,7 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
