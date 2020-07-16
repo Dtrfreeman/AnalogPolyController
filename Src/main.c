@@ -91,8 +91,11 @@ void writeToDac(){
 struct voice{
 	uint8_t noteOn;
 	uint8_t noteCode;
+	uint8_t lState;
+	uint8_t fState;
 	uint8_t noteVel;
-	uint8_t noteEnvCnt;
+	uint16_t lEnvCnt;
+	uint16_t fEnvCnt;
 	volatile unsigned int * loudnessChannel;
 	volatile unsigned int * filterChannel;
 };
@@ -115,9 +118,12 @@ void initVoices(){
 	VoiceArray[3].filterChannel=(&(TIM2->CCR2));
 	for(uint8_t v=0;v<4;v++){
 		VoiceArray[v].noteOn=0;
+		VoiceArray[v].lState=0;
+		VoiceArray[v].fState=0;
 		VoiceArray[v].noteCode=0;
 		VoiceArray[v].noteVel=0;
-		VoiceArray[v].noteEnvCnt=0;
+		VoiceArray[v].lEnvCnt=0;
+		VoiceArray[v].fEnvCnt=0;
 		*VoiceArray[v].loudnessChannel=0;
 		*VoiceArray[v].filterChannel=0;
 	}
@@ -141,8 +147,11 @@ void setNote(uint8_t note){
 	if(curVoice==4){return;}}
 	
 	VoiceArray[curVoice].noteOn=1;
+	VoiceArray[curVoice].lState=1;
+	VoiceArray[curVoice].fState=1;
 	VoiceArray[curVoice].noteCode=note;
-	VoiceArray[curVoice].noteEnvCnt=0;
+	VoiceArray[curVoice].lEnvCnt=0;
+	VoiceArray[curVoice].fEnvCnt=0;
 	VoiceArray[curVoice].noteVel=velBuf;
 	
 	return;
@@ -154,8 +163,11 @@ void releaseNote(uint8_t note){
 		curVoice++;
 		if(curVoice==4){return;}}
 	VoiceArray[curVoice].noteOn=0;
+	VoiceArray[curVoice].lState=5;
+	VoiceArray[curVoice].fState=5;
 	return;
 }
+
 void midiParse(){switch(curPos){
 			case 0:{if(midiBuf>=0x80){
 					status=midiBuf;
@@ -248,6 +260,68 @@ void incrementEnvVal(uint8_t curVoice,signed int Change,uint16_t upperLim,uint16
 	
 	return;	
 }
+
+uint8_t attackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns 0 once the output reaches value
+	volatile unsigned int * Channel;
+	if(curVoice<4){Channel=VoiceArray[curVoice].loudnessChannel;}
+	else if(curVoice<8){Channel=VoiceArray[curVoice-4].filterChannel;}
+	else{return(0);}
+	uint16_t curChannelVal=*Channel;
+	if(curChannelVal==limit){return(0);}//if at limit itll exit with a state complete code
+	
+	
+	else if(curChannelVal+gradient<=limit){*Channel=curChannelVal+gradient;return(1);}//increases by gradient and exits with state continue code
+	
+	else if(curChannelVal>limit){//if for whatever reason its more than limit itll exit with a state complete code
+		curChannelVal=limit;
+		return(0);}
+	
+		
+	else if(curChannelVal+gradient>limit){//if once the gradient is added itll exceed the limit itll
+		*Channel=limit;
+		return(0);
+	}
+	
+	
+	return(0);
+}
+uint8_t releaseToVal(uint8_t curVoice,signed int gradient,uint16_t limit){//returns 0 once the output reaches value
+	volatile unsigned int * Channel;
+	if(curVoice<4){Channel=VoiceArray[curVoice].loudnessChannel;}
+	else if(curVoice<8){Channel=VoiceArray[curVoice-4].filterChannel;}
+	else{return(0);}
+	
+}
+
+void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
+	switch(VoiceArray[voiceNum].lState){
+		case 0:return;
+		case 1:{//attack
+			if(VoiceArray[voiceNum].lEnvCnt< *(pADSRvals+1)){
+				if(releaseToVal(voiceNum,*(pADSRvals),1024)==0){
+					VoiceArray[voiceNum].lState=2;
+				}
+				VoiceArray[voiceNum].lEnvCnt++;
+			}
+			else{VoiceArray[voiceNum].lState=3;}
+			return;
+		}
+		case 2:{//once attack has reached peak value
+			if(VoiceArray[voiceNum].lEnvCnt>= *(pADSRvals+1)){
+				VoiceArray[voiceNum].lState=3;
+			}
+			else{VoiceArray[voiceNum].lEnvCnt++;}
+			return;
+		}
+		
+		
+	}
+
+
+}
+void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
+
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -311,11 +385,11 @@ int main(void)
 	uint16_t ADSRBuf[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	initVoices();
 	
-	*VoiceArray[0].loudnessChannel=256;
-	*VoiceArray[0].filterChannel=256;
+	//*VoiceArray[0].loudnessChannel=256;for test purposes
+	//*VoiceArray[0].filterChannel=256;
 	
 
-	uint8_t curVoice=0;
+	uint8_t channel=0;
 	HAL_DMA_Init(&hdma_i2c2_tx);
 	HAL_I2C_Init(&hi2c2);
 	for(uint8_t i=0;i<8;i++){
@@ -332,41 +406,13 @@ int main(void)
   while (1)
   {
 		
-		if(curVoice<4){
-			if(*(VoiceArray[curVoice].loudnessChannel)>0){
-				if(VoiceArray[curVoice].noteOn!=0){//attack
-							if(VoiceArray[curVoice].noteEnvCnt<=ADSRvals[1]){
-								incrementEnvVal(curVoice,ADSRvals[0],0xffff,0);
-								VoiceArray[curVoice].noteEnvCnt++;
-							}
-							else{//releasing to sustain
-								if(*(VoiceArray[curVoice].loudnessChannel)!=ADSRvals[2]){
-								incrementEnvVal(curVoice,-ADSRvals[3],0xffff,ADSRvals[2]);
-								}	
-							}
-				}
-				else{//releasing to nuthin
-					incrementEnvVal(curVoice,-ADSRvals[3],0xffff,0);
-				}}
-			if(*(VoiceArray[curVoice].filterChannel)>0){//now the filterPWM
-				if(VoiceArray[curVoice].noteOn!=0){//attack
-							if(VoiceArray[curVoice].noteEnvCnt<=ADSRvals[5]){
-								incrementEnvVal(curVoice+4,(signed int)(ADSRvals[4]/ADSRvals[8]),ADSRvals[8],0);
-								VoiceArray[curVoice].noteEnvCnt++;
-							}
-							else{//releasing to sustain
-								if(*(VoiceArray[curVoice].filterChannel)!=ADSRvals[6]){
-								incrementEnvVal(curVoice+4,(signed int)(-ADSRvals[7]/ADSRvals[8]),ADSRvals[8],(signed int)(ADSRvals[6]/ADSRvals[8]));
-								}	
-							}
-				}
-				else{//releasing to nuthin
-					incrementEnvVal(curVoice+4,(signed int)(-ADSRvals[7]/ADSRvals[8]),0xffff,0);
-				}}
-			curVoice++;
+		if(channel<4){
+			lADSRstep(channel,&ADSRvals[0]);
+			fADSRstep(channel,&ADSRvals[0]);
+			channel++;
 		}
 		else if(EnvSampleFlag==1){
-			curVoice=0;
+			channel=0;
 			rescanCnt++;
 			if(rescanCnt>=10){
 				
@@ -376,26 +422,31 @@ int main(void)
 			}
 			if(rescanCnt>=11){
 					rescanCnt=0;
-					for(uint8_t i=0;i<9;i++){//implements rough joystick curve
-						switch(i){
-							case 0:{ADSRBuf[i]/=4;
-								break;}
-							case 3:{ADSRBuf[i]/=4;
-								break;}
-							case 4:{ADSRBuf[i]/=4;
-								break;}
-							case 7:{ADSRBuf[i]/=4;
-								break;}
-						}
+					for(uint8_t i=8;i>=0;i--){
+						//implements rough joystick curve
 						if(ADSRBuf[i]<1024){
-							ADSRvals[i]=ADSRBuf[i]*1.7;}
+							ADSRBuf[i]=ADSRBuf[i]*1.7;}
 						else if(ADSRBuf[i]<3072){
-								ADSRvals[i]=(ADSRBuf[i]/3)+1400;
+								ADSRBuf[i]=(ADSRBuf[i]/3)+1400;
 						}
 						else{
-						ADSRvals[i]=(ADSRBuf[i]*1.7)-2867;
+						ADSRBuf[i]=(ADSRBuf[i]*1.7)-2867;
 						}
-					
+						switch(i){//scales sustain down by 4 and attack and release by 4 and scales them with the influence on the filter
+							case 0:{ADSRvals[i]=ADSRBuf[i]/16;
+								break;}
+							case 2:{ADSRvals[i]=ADSRBuf[i]/4;
+								break;}
+							case 3:{ADSRvals[i]=ADSRBuf[i]/16;
+								break;}
+							case 4:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/63356);
+								break;}
+							case 6:{ADSRvals[i]=ADSRBuf[i]/4;
+								break;}
+							case 7:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/63356);
+								break;}
+						}
+						
 					}
 					
 					printf("ADSR Values are A%u D%u S%u R%u filter: A%u D%u S%u R%u with influence %u",ADSRvals[0],ADSRvals[1],ADSRvals[2],ADSRvals[3],ADSRvals[4],ADSRvals[5],ADSRvals[6],ADSRvals[7],ADSRvals[8]);//you made it
@@ -488,7 +539,7 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_28CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_7CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -813,7 +864,7 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM2;
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
