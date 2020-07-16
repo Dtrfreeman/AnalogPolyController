@@ -270,14 +270,14 @@ uint8_t attackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns
 	if(curChannelVal==limit){return(0);}//if at limit itll exit with a state complete code
 	
 	
-	else if(curChannelVal+gradient<=limit){*Channel=curChannelVal+gradient;return(1);}//increases by gradient and exits with state continue code
+	else if((curChannelVal+gradient)<=limit){*Channel=curChannelVal+gradient;return(1);}//increases by gradient and exits with state continue code
 	
 	else if(curChannelVal>limit){//if for whatever reason its more than limit itll exit with a state complete code
 		curChannelVal=limit;
 		return(0);}
 	
 		
-	else if(curChannelVal+gradient>limit){//if once the gradient is added itll exceed the limit itll
+	else if((curChannelVal+gradient)>limit){//if once the gradient is added itll exceed the limit itll
 		*Channel=limit;
 		return(0);
 	}
@@ -285,20 +285,52 @@ uint8_t attackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns
 	
 	return(0);
 }
-uint8_t releaseToVal(uint8_t curVoice,signed int gradient,uint16_t limit){//returns 0 once the output reaches value
+uint8_t releaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns 0 once the output reaches limit
+	
 	volatile unsigned int * Channel;
 	if(curVoice<4){Channel=VoiceArray[curVoice].loudnessChannel;}
 	else if(curVoice<8){Channel=VoiceArray[curVoice-4].filterChannel;}
 	else{return(0);}
+	uint16_t curChannelVal=*Channel;
+	if(curChannelVal==limit){return(0);}//if at limit itll exit with a state complete code
+	
+	
+	else if((curChannelVal-gradient)>=limit){*Channel=curChannelVal-gradient;return(1);}//decreases by gradient and exits with state continue code
+	
+	else if(curChannelVal<limit){//if for whatever reason its more than limit itll exit with a state complete code
+		curChannelVal=limit;
+		return(0);}
+	
+		
+	else if((curChannelVal+gradient)<limit){//if once the gradient is added itll go under the limit itll set the output to the limit and return a state complete code
+		*Channel=limit;
+		return(0);
+	}
+	
+	
+	return(0);
 	
 }
+/*	    __
+			 /  \
+      /    \
+		 /      \_________
+	  /                 \
+	 /                   \
+  /                     \   
+-><----><><-><-------><-><----
+0	   1  2  3     4     5  0
+
+ADSRvals formatted 0:lAttack,1:lDelay,2:lSustain,3:lRelease,4:fAttack,5:fDelay,6:fSustain,7:fRelease,8:fInfluence
+*/
+
 
 void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 	switch(VoiceArray[voiceNum].lState){
 		case 0:return;
 		case 1:{//attack
 			if(VoiceArray[voiceNum].lEnvCnt< *(pADSRvals+1)){
-				if(releaseToVal(voiceNum,*(pADSRvals),1024)==0){
+				if(attackToVal(voiceNum,*(pADSRvals),1024)==0){
 					VoiceArray[voiceNum].lState=2;
 				}
 				VoiceArray[voiceNum].lEnvCnt++;
@@ -313,6 +345,15 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 			else{VoiceArray[voiceNum].lEnvCnt++;}
 			return;
 		}
+		case 3:{//releasing to sustain
+			if(releaseToVal(voiceNum,*(pADSRvals+3),*(pADSRvals+2))==0){VoiceArray[voiceNum].lState=4;}
+			return;
+		}
+		case 4:return;
+		case 5:{//releasing to 0
+			if(releaseToVal(voiceNum,*(pADSRvals+3),0)==0){VoiceArray[voiceNum].lState=0;}
+			return;
+		return;}
 		
 		
 	}
@@ -320,6 +361,37 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 
 }
 void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
+	switch(VoiceArray[voiceNum].fState){
+		case 0:return;
+		case 1:{//attack
+			if(VoiceArray[voiceNum].fEnvCnt< *(pADSRvals+5)){
+				if(attackToVal(voiceNum,*(pADSRvals+4),*(pADSRvals+8)/4)==0){
+					VoiceArray[voiceNum].fState=2;
+				}
+				VoiceArray[voiceNum].fEnvCnt++;
+			}
+			else{VoiceArray[voiceNum].fState=3;}
+			return;
+		}
+		case 2:{//once attack has reached peak value
+			if(VoiceArray[voiceNum].fEnvCnt>= *(pADSRvals+5)){
+				VoiceArray[voiceNum].fState=3;
+			}
+			else{VoiceArray[voiceNum].fEnvCnt++;}
+			return;
+		}
+		case 3:{//refeasing to sustain
+			if(releaseToVal(voiceNum,*(pADSRvals+7),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
+			return;
+		}
+		case 4:return;
+		case 5:{//refeasing to 0
+			if(releaseToVal(voiceNum,*(pADSRvals+7),0)==0){VoiceArray[voiceNum].fState=0;}
+			return;
+		return;}
+		
+		
+	}
 
 }
 /* USER CODE END PFP */
@@ -430,7 +502,7 @@ int main(void)
 								ADSRBuf[i]=(ADSRBuf[i]/3)+1400;
 						}
 						else{
-						ADSRBuf[i]=(ADSRBuf[i]*1.7)-2867;
+							ADSRBuf[i]=(ADSRBuf[i]*1.7)-2867;
 						}
 						switch(i){//scales sustain down by 4 and attack and release by 4 and scales them with the influence on the filter
 							case 0:{ADSRvals[i]=ADSRBuf[i]/16;
@@ -439,12 +511,13 @@ int main(void)
 								break;}
 							case 3:{ADSRvals[i]=ADSRBuf[i]/16;
 								break;}
-							case 4:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/63356);
+							case 4:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/65536);
 								break;}
-							case 6:{ADSRvals[i]=ADSRBuf[i]/4;
+							case 6:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/16383);;
 								break;}
-							case 7:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/63356);
+							case 7:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/65536);
 								break;}
+							default:{ADSRvals[i]=ADSRBuf[i];break;}
 						}
 						
 					}
