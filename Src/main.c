@@ -75,7 +75,7 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 
-volatile uint8_t DacData[8];
+volatile uint8_t DacData[8]={0,0,0,0,0,0,0,0};
 volatile uint8_t SetNoteCounter=0;//counts number of stages complete
 void setDacBufVal(uint8_t channel,uint16_t * dataIn){
 	channel=channel%4;
@@ -136,9 +136,10 @@ double eError[4]={0,0,0,0};
 f error is offset at zero
 e error is bits per octave error 
 */
+
 void noteCodeToDac(uint8_t curVoice){
 	
-	uint16_t dataBuf=round(log2((8.17525*VoiceArray[curVoice].noteCode)/(32.7+fError[curVoice]))/(683+eError[curVoice]));
+	uint16_t dataBuf=(log2((8.17525*(VoiceArray[curVoice].noteCode))*(32.7+fError[curVoice]))*(683+eError[curVoice]));
 	setDacBufVal(curVoice,&dataBuf);
 	return;
 }
@@ -155,6 +156,7 @@ void setNote(uint8_t note){
 	VoiceArray[curVoice].lEnvCnt=0;
 	VoiceArray[curVoice].fEnvCnt=0;
 	VoiceArray[curVoice].noteVel=velBuf;
+	noteCodeToDac(curVoice);
 	writeToDac();
 	return;
 }
@@ -172,7 +174,40 @@ void releaseNote(uint8_t note){
 
 void midiParse(){
 	switch(curPos){
-			case 0:{if(midiBuf>=0x80){
+			case 2:{
+				curPos=0;
+				if(velBuf>=0x80){
+				HAL_UART_DMAStop(&huart1);
+				HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
+				switch(status){
+					case 0x90:{
+						setNote(noteBuf);
+						return;}
+					case 0x80:{
+						releaseNote(noteBuf);
+						return;}
+					default:{return;}
+				}
+			break;}
+				else{midiBuf=velBuf;}
+			}
+		
+			case 1:{
+				
+				HAL_UART_DMAStop(&huart1);
+					if(noteBuf>=0x80){
+					HAL_UART_Receive_DMA(&huart1,&velBuf,1);
+					curPos=2;
+					
+					return;}
+				else{
+					midiBuf=noteBuf;
+					curPos=0;
+				}
+			}
+		
+			case 0:{
+				if(midiBuf>=0x80){
 					status=midiBuf;
 					status&=0xf0;
 					if(status==0x90||status==0x80){
@@ -191,26 +226,9 @@ void midiParse(){
 					}
 			break;
 			}
-			case 1:{
-				HAL_UART_DMAStop(&huart1);
-					HAL_UART_Receive_DMA(&huart1,&velBuf,1);
-					curPos=2;
-			break;
-			}
 			
-			case 2:{
-				curPos=0;
-				HAL_UART_DMAStop(&huart1);
-				HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
-				switch(status){
-					case 0x90:{
-						setNote(noteBuf);
-						break;}
-					case 0x80:{
-						releaseNote(noteBuf);
-						break;}}
-			break;
-			}
+			
+			
 }}
 
 void DMA1_Channel5_IRQHandler(void)
@@ -306,7 +324,7 @@ uint8_t releaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 		return(0);}
 	
 		
-	else if((curChannelVal+gradient)<limit){//if once the gradient is added itll go under the limit itll set the output to the limit and return a state complete code
+	else if((curChannelVal-gradient)<limit){//if once the gradient is added itll go under the limit itll set the output to the limit and return a state complete code
 		*Channel=limit;
 		return(0);
 	}
@@ -460,10 +478,10 @@ int main(void)
 	uint16_t ADSRvals[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint16_t ADSRBuf[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	initVoices();
-	
-	//*VoiceArray[0].loudnessChannel=256;for test purposes
-	//*VoiceArray[0].filterChannel=256;
-	
+	/*
+	*VoiceArray[0].loudnessChannel=256;//for test purposes
+	*VoiceArray[0].filterChannel=256;
+	*/
 
 	uint8_t channel=0;
 	HAL_DMA_Init(&hdma_i2c2_tx);
@@ -509,17 +527,17 @@ int main(void)
 							ADSRBuf[i]=(ADSRBuf[i]*1.7)-2867;
 						}
 						switch(i){//scales sustain down by 4 and attack and release by 4 and scales them with the influence on the filter
-							case 0:{ADSRvals[i]=ADSRBuf[i]/16;
+							case 0:{ADSRvals[i]=ADSRBuf[i]/32;
 								break;}
 							case 2:{ADSRvals[i]=ADSRBuf[i]/4;
 								break;}
-							case 3:{ADSRvals[i]=ADSRBuf[i]/16;
+							case 3:{ADSRvals[i]=ADSRBuf[i]/32;
 								break;}
-							case 4:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/65536);
+							case 4:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/131072);
 								break;}
 							case 6:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/16383);;
 								break;}
-							case 7:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/65536);
+							case 7:{ADSRvals[i]=(uint16_t)(((unsigned long)ADSRBuf[i]*ADSRBuf[8])/131072);
 								break;}
 							default:{ADSRvals[i]=ADSRBuf[i];break;}
 						}
