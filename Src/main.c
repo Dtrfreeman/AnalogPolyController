@@ -76,6 +76,7 @@ static void MX_ADC1_Init(void);
 
 
 volatile uint8_t DacData[8];
+volatile uint8_t SetNoteCounter=0;//counts number of stages complete
 void setDacBufVal(uint8_t channel,uint16_t * dataIn){
 	channel=channel%4;
 	DacData[channel<<1]=((*dataIn)>>8)&0x0f;
@@ -83,7 +84,8 @@ void setDacBufVal(uint8_t channel,uint16_t * dataIn){
 }
 	
 void writeToDac(){
-	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,&DacData[0],0x0008,1);
+	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008,1);
+	
 	//frustratingly this is blocking.
 }
 
@@ -145,7 +147,7 @@ void setNote(uint8_t note){
 	uint8_t curVoice=0;
 	while(VoiceArray[curVoice].noteOn!=0){curVoice++;
 	if(curVoice==4){return;}}
-	
+	SetNoteCounter=1;
 	VoiceArray[curVoice].noteOn=1;
 	VoiceArray[curVoice].lState=1;
 	VoiceArray[curVoice].fState=1;
@@ -153,7 +155,7 @@ void setNote(uint8_t note){
 	VoiceArray[curVoice].lEnvCnt=0;
 	VoiceArray[curVoice].fEnvCnt=0;
 	VoiceArray[curVoice].noteVel=velBuf;
-	
+	writeToDac();
 	return;
 }
 
@@ -168,7 +170,8 @@ void releaseNote(uint8_t note){
 	return;
 }
 
-void midiParse(){switch(curPos){
+void midiParse(){
+	switch(curPos){
 			case 0:{if(midiBuf>=0x80){
 					status=midiBuf;
 					status&=0xf0;
@@ -212,8 +215,9 @@ void midiParse(){switch(curPos){
 
 void DMA1_Channel5_IRQHandler(void)
 {
-	midiParse();
+	
   /* USER CODE BEGIN DMA1_Channel5_IRQn 0 */
+	midiParse();
   /* USER CODE END DMA1_Channel5_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_usart1_rx);
   /* USER CODE BEGIN DMA1_Channel5_IRQn 1 */
@@ -494,7 +498,7 @@ int main(void)
 			}
 			if(rescanCnt>=11){
 					rescanCnt=0;
-					for(uint8_t i=8;i>=0;i--){
+					for(signed int i=8;i>=0;i--){
 						//implements rough joystick curve
 						if(ADSRBuf[i]<1024){
 							ADSRBuf[i]=ADSRBuf[i]*1.7;}
