@@ -250,7 +250,7 @@ uint8_t lAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 	if(VoiceArray[curVoice].loudnessVal==limit){return(0);}//if at limit itll exit with a state complete code
 	
 	
-	else if((VoiceArray[curVoice].loudnessVal+gradient)<=limit){
+	else if((VoiceArray[curVoice].loudnessVal+gradient)<limit){
 		VoiceArray[curVoice].loudnessVal+=gradient;
 		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;//scales down to 1024 being max
 		return(1);
@@ -264,7 +264,7 @@ uint8_t lAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 		return(0);}
 	
 		
-	else if((VoiceArray[curVoice].loudnessVal+gradient)>limit){//if once the gradient is added itll exceed the limit itll
+	else if((VoiceArray[curVoice].loudnessVal+gradient)>=limit){//if once the gradient is added itll exceed the limit itll
 		
 		VoiceArray[curVoice].loudnessVal=limit;
 		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;
@@ -382,7 +382,7 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 		case 0:{return;}
 		case 1:{//attack
 			if(VoiceArray[voiceNum].lEnvCnt< *(pADSRvals+1)){
-				if(lAttackToVal(voiceNum,*(pADSRvals),1024)==0){
+				if(lAttackToVal(voiceNum,*(pADSRvals),0xffff)==0){
 					VoiceArray[voiceNum].lState=2;
 				}
 				VoiceArray[voiceNum].lEnvCnt++;
@@ -426,7 +426,7 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 		case 0:{return;}
 		case 1:{//attack
 			if(VoiceArray[voiceNum].fEnvCnt< *(pADSRvals+5)){
-				if(fAttackToVal(voiceNum,*(pADSRvals+4),*(pADSRvals+8)/4)==0){
+				if(fAttackToVal(voiceNum,*(pADSRvals+4),*(pADSRvals+8))==0){
 					VoiceArray[voiceNum].fState=2;
 				}
 				VoiceArray[voiceNum].fEnvCnt++;
@@ -563,14 +563,23 @@ int main(void)
 
 				HAL_ADC_Stop_DMA(&hadc1);
 				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*9],18);
+				curBuf++;
+				if(curBuf==3){curBuf=0;}
 			}
 			if(rescanCnt>=11){
 					rescanCnt=0;
-					
-					ADSRvals[0]=ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18];
-					ADSRvals[0]=ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18];
-						
-					
+					//loudness
+					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18])/36)+1;//attack 
+					ADSRvals[1]=(ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19]);//delay
+					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*5;//sustain
+					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/36)+1;//release
+					//filter
+				//todo: put loudness attack and release divisiors onto filter
+					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26]);//influence
+					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/65536)+1;//attack
+					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/3;//delay
+					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/13107;//sustain
+					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/65536)+1;//release
 					
 					//printf("ADSR Values are A%u D%u S%u R%u filter: A%u D%u S%u R%u with influence %u",ADSRvals[0],ADSRvals[1],ADSRvals[2],ADSRvals[3],ADSRvals[4],ADSRvals[5],ADSRvals[6],ADSRvals[7],ADSRvals[8]);//you made it
 			}
@@ -790,9 +799,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 10000;
+  htim1.Init.Prescaler = 100000;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 36;
+  htim1.Init.Period = 360;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
