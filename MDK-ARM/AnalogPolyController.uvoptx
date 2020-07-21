@@ -152,7 +152,7 @@
         <Bp>
           <Number>0</Number>
           <Type>0</Type>
-          <LineNumber>483</LineNumber>
+          <LineNumber>470</LineNumber>
           <EnabledFlag>1</EnabledFlag>
           <Address>0</Address>
           <ByteObject>0</ByteObject>
@@ -168,7 +168,7 @@
         <Bp>
           <Number>1</Number>
           <Type>0</Type>
-          <LineNumber>482</LineNumber>
+          <LineNumber>469</LineNumber>
           <EnabledFlag>1</EnabledFlag>
           <Address>0</Address>
           <ByteObject>0</ByteObject>
@@ -267,6 +267,21 @@
           <count>16</count>
           <WinNumber>1</WinNumber>
           <ItemText>VoiceArray[curVoice].noteCode</ItemText>
+        </Ww>
+        <Ww>
+          <count>17</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>VoiceArray[voiceNum].fState</ItemText>
+        </Ww>
+        <Ww>
+          <count>18</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>VoiceArray[voiceNum].fState</ItemText>
+        </Ww>
+        <Ww>
+          <count>19</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>VoiceArray[voiceNum].lState</ItemText>
         </Ww>
       </WatchWindow1>
       <Tracepoint>

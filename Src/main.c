@@ -174,40 +174,7 @@ void releaseNote(uint8_t note){
 
 void midiParse(){
 	switch(curPos){
-			case 2:{
-				curPos=0;
-				if(velBuf>=0x80){
-				HAL_UART_DMAStop(&huart1);
-				HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
-				switch(status){
-					case 0x90:{
-						setNote(noteBuf);
-						return;}
-					case 0x80:{
-						releaseNote(noteBuf);
-						return;}
-					default:{return;}
-				}
-			break;}
-				else{midiBuf=velBuf;}
-			}
-		
-			case 1:{
-				
-				HAL_UART_DMAStop(&huart1);
-					if(noteBuf>=0x80){
-					HAL_UART_Receive_DMA(&huart1,&velBuf,1);
-					curPos=2;
-					
-					return;}
-				else{
-					midiBuf=noteBuf;
-					curPos=0;
-				}
-			}
-		
-			case 0:{
-				if(midiBuf>=0x80){
+			case 0:{if(midiBuf>=0x80){
 					status=midiBuf;
 					status&=0xf0;
 					if(status==0x90||status==0x80){
@@ -226,9 +193,27 @@ void midiParse(){
 					}
 			break;
 			}
+			case 1:{
+				HAL_UART_DMAStop(&huart1);
+					HAL_UART_Receive_DMA(&huart1,&velBuf,1);
+					curPos=2;
+					
+			break;
+			}
 			
-			
-			
+			case 2:{
+				curPos=0;
+				HAL_UART_DMAStop(&huart1);
+				HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
+				switch(status){
+					case 0x90:{
+						setNote(noteBuf);
+						break;}
+					case 0x80:{
+						releaseNote(noteBuf);
+						break;}}
+			break;
+			}
 }}
 
 void DMA1_Channel5_IRQHandler(void)
@@ -349,7 +334,7 @@ ADSRvals formatted 0:lAttack,1:lDelay,2:lSustain,3:lRelease,4:fAttack,5:fDelay,6
 
 void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 	switch(VoiceArray[voiceNum].lState){
-		case 0:return;
+		case 0:{return;break;}
 		case 1:{//attack
 			if(VoiceArray[voiceNum].lEnvCnt< *(pADSRvals+1)){
 				if(attackToVal(voiceNum,*(pADSRvals),1024)==0){
@@ -359,6 +344,7 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 			}
 			else{VoiceArray[voiceNum].lState=3;}
 			return;
+			break;
 		}
 		case 2:{//once attack has reached peak value
 			if(VoiceArray[voiceNum].lEnvCnt>= *(pADSRvals+1)){
@@ -383,11 +369,12 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 
 }
 void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
+
 	switch(VoiceArray[voiceNum].fState){
-		case 0:return;
+		case 0:{return;break;}
 		case 1:{//attack
 			if(VoiceArray[voiceNum].fEnvCnt< *(pADSRvals+5)){
-				if(attackToVal(voiceNum,*(pADSRvals+4),*(pADSRvals+8)/4)==0){
+				if(attackToVal(voiceNum+4,*(pADSRvals+4),*(pADSRvals+8)/4)==0){
 					VoiceArray[voiceNum].fState=2;
 				}
 				VoiceArray[voiceNum].fEnvCnt++;
@@ -403,12 +390,12 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 			return;
 		}
 		case 3:{//refeasing to sustain
-			if(releaseToVal(voiceNum,*(pADSRvals+7),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
+			if(releaseToVal(voiceNum+4,*(pADSRvals+7),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
 			return;
 		}
 		case 4:return;
 		case 5:{//refeasing to 0
-			if(releaseToVal(voiceNum,*(pADSRvals+7),0)==0){VoiceArray[voiceNum].fState=0;}
+			if(releaseToVal(voiceNum+4,*(pADSRvals+7),0)==0){VoiceArray[voiceNum].fState=0;}
 			return;
 		return;}
 		
@@ -478,10 +465,10 @@ int main(void)
 	uint16_t ADSRvals[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint16_t ADSRBuf[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	initVoices();
-	/*
+	
 	*VoiceArray[0].loudnessChannel=256;//for test purposes
 	*VoiceArray[0].filterChannel=256;
-	*/
+	
 
 	uint8_t channel=0;
 	HAL_DMA_Init(&hdma_i2c2_tx);
@@ -544,7 +531,7 @@ int main(void)
 						
 					}
 					
-					printf("ADSR Values are A%u D%u S%u R%u filter: A%u D%u S%u R%u with influence %u",ADSRvals[0],ADSRvals[1],ADSRvals[2],ADSRvals[3],ADSRvals[4],ADSRvals[5],ADSRvals[6],ADSRvals[7],ADSRvals[8]);//you made it
+					//printf("ADSR Values are A%u D%u S%u R%u filter: A%u D%u S%u R%u with influence %u",ADSRvals[0],ADSRvals[1],ADSRvals[2],ADSRvals[3],ADSRvals[4],ADSRvals[5],ADSRvals[6],ADSRvals[7],ADSRvals[8]);//you made it
 			}
 		}
 	
@@ -961,7 +948,7 @@ static void MX_TIM4_Init(void)
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 1;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
