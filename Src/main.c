@@ -201,7 +201,12 @@ void midiParse(){
 				HAL_UART_DMAStop(&huart1);
 					HAL_UART_Receive_DMA(&huart1,&velBuf,1);
 					curPos=2;
-					
+					if(noteBuf>=0x80){
+						curPos=0;
+						status=noteBuf;
+						HAL_UART_DMAStop(&huart1);
+						HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
+					}
 			break;
 			}
 			
@@ -215,7 +220,8 @@ void midiParse(){
 						break;}
 					case 0x80:{
 						releaseNote(noteBuf);
-						break;}}
+						break;}
+				}
 			break;
 			}
 }}
@@ -364,14 +370,14 @@ uint8_t fReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//retur
 	return(0);
 }
 /*	    __
-			 /  \
-      /    \
-		 /      \_________
-	  /                 \
-	 /                   \
-  /                     \   
--><----><><-><-------><-><----
-0	   1  2  3     4     5  0
+			 /  \                         _______
+      /    \                       /       \ 
+		 /      \_________           	/         \
+	  /                 \          /           \
+	 /                   \        /             \ 
+  /                     \      /               \
+-><----><><-><-------><-><----><><-><-----><---><----
+0	   1  2  3     4     5   0    1 6    4     5    0
 
 ADSRvals formatted 0:lAttack,1:lDelay,2:lSustain,3:lRelease,4:fAttack,5:fDelay,6:fSustain,7:fRelease,8:fInfluence
 */
@@ -387,7 +393,11 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 				}
 				VoiceArray[voiceNum].lEnvCnt++;
 			}
-			else{VoiceArray[voiceNum].lState=3;}
+			else{
+					if(VoiceArray[voiceNum].loudnessVal>=*(pADSRvals+2)){
+						VoiceArray[voiceNum].lState=3;}
+					else{VoiceArray[voiceNum].lState=6;}	
+				}
 			if(VoiceArray[voiceNum].noteOn==0){
 				VoiceArray[voiceNum].fState=5;
 			}
@@ -487,7 +497,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+	
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -540,6 +550,7 @@ int main(void)
 	}
 	
 	uint8_t rescanCnt=0;
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -562,7 +573,7 @@ int main(void)
 				
 
 				HAL_ADC_Stop_DMA(&hadc1);
-				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*9],18);
+				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*9],9);
 				curBuf++;
 				if(curBuf==3){curBuf=0;}
 			}
@@ -799,9 +810,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 100000;
+  htim1.Init.Prescaler = 10000;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 360;
+  htim1.Init.Period = 36;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
