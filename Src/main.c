@@ -558,13 +558,12 @@ int main(void)
 					ADSRvals[1]=(ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/60;//delay
 					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*5;//sustain
 					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/3)+1;//release
-					//filter
-				//todo: put loudness attack and release divisiors onto filter
-					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26]);//influence
-					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/65536)+1;//attack
-					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/3;//delay
+					//filter				
+					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26])*5;//influence
+					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/(196605))+1;//attack
+					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/60;//delay
 					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/13107;//sustain
-					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/65536)+1;//release
+					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/196605)+1;//release
 					
 					//printf("ADSR Values are A%u D%u S%u R%u filter: A%u D%u S%u R%u with influence %u",ADSRvals[0],ADSRvals[1],ADSRvals[2],ADSRvals[3],ADSRvals[4],ADSRvals[5],ADSRvals[6],ADSRvals[7],ADSRvals[8]);//you made it
 			}
