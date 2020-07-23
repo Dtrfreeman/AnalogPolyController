@@ -226,30 +226,13 @@ void midiParse(){
 			}
 }}
 
-void DMA1_Channel5_IRQHandler(void)
-{
-	
-  /* USER CODE BEGIN DMA1_Channel5_IRQn 0 */
-	midiParse();
-  /* USER CODE END DMA1_Channel5_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_usart1_rx);
-  /* USER CODE BEGIN DMA1_Channel5_IRQn 1 */
 
-  /* USER CODE END DMA1_Channel5_IRQn 1 */
-}
-
-void USART1_IRQHandler(void){
-	midiParse();
-		HAL_UART_IRQHandler(&huart1);
-		return;
-}
 volatile uint8_t EnvSampleFlag=0;
 
 void timer1Complete(){
 	EnvSampleFlag=1;
 
 }
-
 
 uint8_t lAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns 0 once the output reaches value
 	
@@ -258,14 +241,14 @@ uint8_t lAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 	
 	else if((VoiceArray[curVoice].loudnessVal+gradient)<limit){
 		VoiceArray[curVoice].loudnessVal+=gradient;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;//scales down to 1024 being max
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;//scales down to 1024 being max
 		return(1);
 	}//increases by gradient and exits with state continue code
 	
 	else if(VoiceArray[curVoice].loudnessVal>limit){
 		//if for whatever reason its more than limit itll exit with a state complete code
 		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;
 		
 		return(0);}
 	
@@ -273,7 +256,7 @@ uint8_t lAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 	else if((VoiceArray[curVoice].loudnessVal+gradient)>=limit){//if once the gradient is added itll exceed the limit itll
 		
 		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;
 		return(0);
 	}
 	
@@ -285,24 +268,17 @@ uint8_t lReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//retur
 	if(VoiceArray[curVoice].loudnessVal==limit){return(0);}//if at limit itll exit with a state complete code
 	
 	
-	else if((VoiceArray[curVoice].loudnessVal+gradient)>=limit){
+	else if((VoiceArray[curVoice].loudnessVal-gradient)>limit){
 		VoiceArray[curVoice].loudnessVal-=gradient;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;//scales down to 1024 being max
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;//scales down to 1024 being max
 		return(1);
 	}//increases by gradient and exits with state continue code
 	
-	else if(VoiceArray[curVoice].loudnessVal<limit){
-		//if for whatever reason its more than limit itll exit with a state complete code
-		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;
 		
-		return(0);}
-	
-		
-	else if((VoiceArray[curVoice].loudnessVal+gradient)>limit){//if once the gradient is added itll exceed the limit itll
+	else if((VoiceArray[curVoice].loudnessVal-gradient)<=limit){//if once the gradient is added itll exceed the limit itll
 		
 		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;
 		return(0);
 	}
 	
@@ -318,14 +294,14 @@ uint8_t fAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 	
 	else if((VoiceArray[curVoice].loudnessVal+gradient)<=limit){
 		VoiceArray[curVoice].loudnessVal+=gradient;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;//scales down to 1024 being max
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;//scales down to 1024 being max
 		return(1);
 	}//increases by gradient and exits with state continue code
 	
 	else if(VoiceArray[curVoice].loudnessVal>limit){
 		//if for whatever reason its more than limit itll exit with a state complete code
 		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;
 		
 		return(0);}
 	
@@ -333,7 +309,7 @@ uint8_t fAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 	else if((VoiceArray[curVoice].loudnessVal+gradient)>limit){//if once the gradient is added itll exceed the limit itll
 		
 		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal/64;
+		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;
 		return(0);
 	}
 	
@@ -347,14 +323,14 @@ uint8_t fReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//retur
 	
 	else if((VoiceArray[curVoice].filterVal+gradient)>=limit){
 		VoiceArray[curVoice].filterVal-=gradient;
-		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal/64;//scales down to 1024 being max
+		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;//scales down to 1024 being max
 		return(1);
 	}//increases by gradient and exits with state continue code
 	
 	else if(VoiceArray[curVoice].filterVal<limit){
 		//if for whatever reason its more than limit itll exit with a state complete code
 		VoiceArray[curVoice].filterVal=limit;
-		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal/64;
+		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;
 		
 		return(0);}
 	
@@ -362,7 +338,7 @@ uint8_t fReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//retur
 	else if((VoiceArray[curVoice].filterVal+gradient)>limit){//if once the gradient is added itll exceed the limit itll
 		
 		VoiceArray[curVoice].filterVal=limit;
-		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal/64;
+		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;
 		return(0);
 	}
 	
@@ -550,7 +526,7 @@ int main(void)
 	}
 	
 	uint8_t rescanCnt=0;
-	
+	volatile HAL_UART_StateTypeDef curState;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -558,16 +534,20 @@ int main(void)
 	
   while (1)
   {
-	if(channel<4){
+		
+		if(HAL_UART_GetState(&huart1)!=HAL_UART_STATE_BUSY_RX){
+			HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
+		}//checking we are currently reciving data just incase the midi routine fell over
+		
+		if(channel<4){
 			lADSRstep(channel,&ADSRvals[0]);
 			fADSRstep(channel,&ADSRvals[0]);
 			channel++;
 		}
-		if(HAL_UART_GetState(&huart1)==HAL_UART_STATE_READY){
-			HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
-		}
+		
 		else if(EnvSampleFlag==1){
 			channel=0;
+			EnvSampleFlag=0;
 			rescanCnt++;
 			if(rescanCnt>=10){
 				
@@ -825,7 +805,7 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
   {
@@ -1009,7 +989,7 @@ static void MX_TIM4_Init(void)
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 1;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
