@@ -321,21 +321,14 @@ uint8_t fReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//retur
 	if(VoiceArray[curVoice].filterVal==limit){return(0);}//if at limit itll exit with a state complete code
 	
 	
-	else if((VoiceArray[curVoice].filterVal+gradient)>=limit){
+	else if((VoiceArray[curVoice].filterVal-gradient)>limit){
 		VoiceArray[curVoice].filterVal-=gradient;
 		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;//scales down to 1024 being max
 		return(1);
 	}//increases by gradient and exits with state continue code
 	
-	else if(VoiceArray[curVoice].filterVal<limit){
-		//if for whatever reason its more than limit itll exit with a state complete code
-		VoiceArray[curVoice].filterVal=limit;
-		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;
 		
-		return(0);}
-	
-		
-	else if((VoiceArray[curVoice].filterVal+gradient)>limit){//if once the gradient is added itll exceed the limit itll
+	else if((VoiceArray[curVoice].filterVal-gradient)<=limit){//if once the gradient is added itll exceed the limit itll
 		
 		VoiceArray[curVoice].filterVal=limit;
 		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;
@@ -512,8 +505,9 @@ int main(void)
 	uint16_t ADSRbuf[27]={180,2048,2048,180,180,2048,2048,180,2048,180,2048,2048,180,180,2048,2048,180,2048,180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint8_t curBuf=0;
 	initVoices();
-	
-	*VoiceArray[0].loudnessChannel=256; /* //for test purposes
+		
+	/*
+	*VoiceArray[0].loudnessChannel=256;  //for test purposes
 	*VoiceArray[0].filterChannel=256;
 	*/
 
@@ -560,10 +554,10 @@ int main(void)
 			if(rescanCnt>=11){
 					rescanCnt=0;
 					//loudness
-					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18])/36)+1;//attack 
-					ADSRvals[1]=(ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19]);//delay
+					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18])/3)+1;//attack 
+					ADSRvals[1]=(ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/60;//delay
 					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*5;//sustain
-					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/36)+1;//release
+					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/3)+1;//release
 					//filter
 				//todo: put loudness attack and release divisiors onto filter
 					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26]);//influence
@@ -987,7 +981,7 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
