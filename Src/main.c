@@ -75,10 +75,10 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 
-volatile uint8_t DacData[8]={0,0,0,0,0,0,0,0};
-volatile uint8_t SetNoteCounter=0;//counts number of stages complete
+uint8_t DacData[8]={0,0,0,0,0,0,0,0};
+uint8_t SetNoteCounter=0;//counts number of stages complete
 void setDacBufVal(uint8_t channel,uint16_t * dataIn){
-	channel=channel%4;
+	
 	DacData[channel<<1]=((*dataIn)>>8)&0x0f;
 	DacData[(channel<<1)+1]=(*dataIn)&0xff;
 }
@@ -442,6 +442,21 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 	}
 
 }
+/*
+int readFreqCount(uint8_t channel){
+	
+}
+
+int testChannels(){
+	
+	uint8_t v;
+	for(v=0;v<8;v++){
+			DacData[v]=0;
+	}
+	v=0;
+
+}
+*/
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -506,21 +521,26 @@ int main(void)
 	uint8_t curBuf=0;
 	initVoices();
 		
-	/*
+	
 	*VoiceArray[0].loudnessChannel=256;  //for test purposes
-	*VoiceArray[0].filterChannel=256;
-	*/
-
-	uint8_t channel=0;
+	*VoiceArray[0].filterChannel=512;
+	uint8_t channel;	
+	for(channel=0;channel<4;channel++){
+		*VoiceArray[channel].loudnessChannel=0;  
+		*VoiceArray[channel].filterChannel=0;
+	}
+	channel=0;
+	
 	HAL_DMA_Init(&hdma_i2c2_tx);
 	HAL_I2C_Init(&hi2c2);
+	/*
 	for(uint8_t i=0;i<8;i++){
 		HAL_I2C_IsDeviceReady(&hi2c2,0x00c0|i<<1,1,2);
 	
 	}
-	
+	*/
 	uint8_t rescanCnt=0;
-	volatile HAL_UART_StateTypeDef curState;
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -855,7 +875,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 1;
+  sConfigOC.Pulse = 128;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
