@@ -142,8 +142,11 @@ e error is bits per octave error
 */
 
 void noteCodeToDac(uint8_t curVoice){
-	
-	uint16_t dataBuf=(log2((8.17525*(VoiceArray[curVoice].noteCode))*(32.7+fError[curVoice]))*(683+eError[curVoice]));
+	//minimum is c1 (32.7hz), it actually shifts all input up a octave
+	uint8_t actualNote=((int)(VoiceArray[curVoice].noteCode))%60;
+	//caps at c7 aka 2092.8hz
+	//uint16_t dataBuf=(log2((8.17525*(VoiceArray[curVoice].noteCode))*(32.7+fError[curVoice]))*(341+eError[curVoice]));
+	uint16_t dataBuf=actualNote*68;
 	setDacBufVal(curVoice,&dataBuf);
 	return;
 }
@@ -522,8 +525,8 @@ int main(void)
 	initVoices();
 		
 	
-	*VoiceArray[0].loudnessChannel=256;  //for test purposes
-	*VoiceArray[0].filterChannel=512;
+	//*VoiceArray[0].loudnessChannel=256;  //for test purposes
+	//*VoiceArray[0].filterChannel=512;
 	uint8_t channel;	
 	for(channel=0;channel<4;channel++){
 		*VoiceArray[channel].loudnessChannel=0;  
