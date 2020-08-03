@@ -76,11 +76,14 @@ static void MX_ADC1_Init(void);
 
 
 uint8_t DacData[8]={0,0,0,0,0,0,0,0};
-uint8_t SetNoteCounter=0;//counts number of stages complete
+uint8_t Unison=0;
+
 void setDacBufVal(uint8_t channel,uint16_t * dataIn){
+	
 	
 	DacData[channel<<1]=((*dataIn)>>8)&0x0f;
 	DacData[(channel<<1)+1]=(*dataIn)&0xff;
+	
 }
 	
 void writeToDac(){
@@ -143,19 +146,33 @@ e error is bits per octave error
 
 void noteCodeToDac(uint8_t curVoice){
 	//minimum is c1 (32.7hz), it actually shifts all input up a octave
-	uint8_t actualNote=((int)(VoiceArray[curVoice].noteCode))%60;
+	uint8_t actualNote=((int)(VoiceArray[curVoice].noteCode)-12)%72;
 	//caps at c7 aka 2092.8hz
 	//uint16_t dataBuf=(log2((8.17525*(VoiceArray[curVoice].noteCode))*(32.7+fError[curVoice]))*(341+eError[curVoice]));
-	uint16_t dataBuf=actualNote*68;
+	uint16_t dataBuf=actualNote*57;
 	setDacBufVal(curVoice,&dataBuf);
 	return;
 }
 
 void setNote(uint8_t note){
 	uint8_t curVoice=0;
+	if(Unison==1){
+		for(curVoice=0;curVoice<4;curVoice++){
+			VoiceArray[curVoice].noteOn=1;
+			VoiceArray[curVoice].lState=1;
+			VoiceArray[curVoice].fState=1;
+			VoiceArray[curVoice].noteCode=note;
+			VoiceArray[curVoice].lEnvCnt=0;
+			VoiceArray[curVoice].fEnvCnt=0;
+			VoiceArray[curVoice].noteVel=velBuf;
+			noteCodeToDac(curVoice);
+		}
+		writeToDac();
+	}
+	else{
 	while((VoiceArray[curVoice].noteOn!=0)&&(VoiceArray[curVoice].noteCode!=note)){curVoice++;
 	if(curVoice==4){return;}}
-	SetNoteCounter=1;
+	
 	VoiceArray[curVoice].noteOn=1;
 	VoiceArray[curVoice].lState=1;
 	VoiceArray[curVoice].fState=1;
@@ -164,7 +181,7 @@ void setNote(uint8_t note){
 	VoiceArray[curVoice].fEnvCnt=0;
 	VoiceArray[curVoice].noteVel=velBuf;
 	noteCodeToDac(curVoice);
-	writeToDac();
+	writeToDac();}
 	return;
 }
 
@@ -578,13 +595,13 @@ int main(void)
 					rescanCnt=0;
 					//loudness
 					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18])/3)+1;//attack 
-					ADSRvals[1]=(ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/60;//delay
+					ADSRvals[1]=(ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/256;//delay
 					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*5;//sustain
 					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/3)+1;//release
 					//filter				
 					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26])*5;//influence
 					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/(196605))+1;//attack
-					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/60;//delay
+					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/256;//delay
 					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/13107;//sustain
 					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/196605)+1;//release
 					
