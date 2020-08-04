@@ -159,7 +159,7 @@ void noteCodeToDac(uint8_t curVoice){
 
 void setNote(uint8_t note){
 	uint8_t curVoice=0;
-	if(Unison==1){
+	if(Unison!=0){
 		for(curVoice=0;curVoice<4;curVoice++){
 			VoiceArray[curVoice].noteOn=1;
 			VoiceArray[curVoice].lState=1;
@@ -190,6 +190,14 @@ void setNote(uint8_t note){
 
 void releaseNote(uint8_t note){
 	uint8_t curVoice=0;
+	if(Unison!=0){
+			for(curVoice=0;curVoice<4;curVoice++){
+				VoiceArray[curVoice].noteOn=0;
+				VoiceArray[curVoice].lState=5;
+				VoiceArray[curVoice].fState=5;
+			}
+	}
+	
 	while(VoiceArray[curVoice].noteCode!=note){
 		curVoice++;
 		if(curVoice==4){return;}}
@@ -634,6 +642,9 @@ int main(void)
 					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26])*5;//influence
 					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/(196605))+1;//attack
 					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/256;//delay
+						if(ADSRvals[5]==0){ADSRvals[5]=1;}
+					else if(ADSRvals[5]<=48){ADSRvals[5]/=4;}
+					else{ADSRvals[5]=(ADSRvals[5]>>1)-84;}
 					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/13107;//sustain
 					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/196605)+1;//release
 					
