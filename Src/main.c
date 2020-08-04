@@ -77,6 +77,9 @@ static void MX_ADC1_Init(void);
 
 uint8_t DacData[8]={0,0,0,0,0,0,0,0};
 uint8_t Unison=0;
+uint8_t lVel,fVel=0;
+
+uint8_t portRate=0;
 
 void setDacBufVal(uint8_t channel,uint16_t * dataIn){
 	
@@ -113,10 +116,10 @@ volatile struct voice VoiceArray[4];
 void initVoices(){
 	
 	VoiceArray[0].loudnessChannel=(&(TIM4->CCR1));
-	VoiceArray[0].filterChannel=(&(TIM3->CCR1));
+	VoiceArray[0].filterChannel=(&(TIM3->CCR2));
 	
 	VoiceArray[1].loudnessChannel=(&(TIM4->CCR2));
-	VoiceArray[1].filterChannel=(&(TIM3->CCR2));
+	VoiceArray[1].filterChannel=(&(TIM3->CCR1));
 	
 	VoiceArray[2].loudnessChannel=(&(TIM4->CCR3));
 	VoiceArray[2].filterChannel=(&(TIM2->CCR1));
@@ -309,27 +312,27 @@ uint8_t lReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//retur
 
 uint8_t fAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns 0 once the output reaches value
 	
-	if(VoiceArray[curVoice].loudnessVal==limit){return(0);}//if at limit itll exit with a state complete code
+	if(VoiceArray[curVoice].filterVal==limit){return(0);}//if at limit itll exit witha state complete code
 	
 	
-	else if((VoiceArray[curVoice].loudnessVal+gradient)<=limit){
-		VoiceArray[curVoice].loudnessVal+=gradient;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;//scales down to 1024 being max
+	else if((VoiceArray[curVoice].filterVal+gradient)<limit){
+		VoiceArray[curVoice].filterVal+=gradient;
+		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;//scales down to 1024 being max
 		return(1);
 	}//increases by gradient and exits with state continue code
 	
-	else if(VoiceArray[curVoice].loudnessVal>limit){
+	else if(VoiceArray[curVoice].filterVal>limit){
 		//if for whatever reason its more than limit itll exit with a state complete code
-		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;
+		VoiceArray[curVoice].filterVal=limit;
+		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;
 		
 		return(0);}
 	
 		
-	else if((VoiceArray[curVoice].loudnessVal+gradient)>limit){//if once the gradient is added itll exceed the limit itll
+	else if((VoiceArray[curVoice].filterVal+gradient)>=limit){//if once the gradient is added itll exceed the limit itll
 		
-		VoiceArray[curVoice].loudnessVal=limit;
-		(*VoiceArray[curVoice].loudnessChannel)=VoiceArray[curVoice].loudnessVal>>6;
+		VoiceArray[curVoice].filterVal=limit;
+		(*VoiceArray[curVoice].filterChannel)=VoiceArray[curVoice].filterVal>>6;
 		return(0);
 	}
 	
@@ -337,7 +340,7 @@ uint8_t fAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//return
 	return(0);
 }
 uint8_t fReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns 0 once the output reaches limit
-	
+
 	if(VoiceArray[curVoice].filterVal==limit){return(0);}//if at limit itll exit with a state complete code
 	
 	
@@ -358,6 +361,8 @@ uint8_t fReleaseToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//retur
 	
 	return(0);
 }
+
+
 /*	    __
 			 /  \                         _______
       /    \                       /       \ 
@@ -375,18 +380,22 @@ ADSRvals formatted 0:lAttack,1:lDelay,2:lSustain,3:lRelease,4:fAttack,5:fDelay,6
 void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 	switch(VoiceArray[voiceNum].lState){
 		case 0:{return;}
+		
 		case 1:{//attack
-			if(VoiceArray[voiceNum].lEnvCnt< *(pADSRvals+1)){
+			if(VoiceArray[voiceNum].lEnvCnt< (*(pADSRvals+1))){
 				if(lAttackToVal(voiceNum,*(pADSRvals),0xffff)==0){
 					VoiceArray[voiceNum].lState=2;
 				}
 				VoiceArray[voiceNum].lEnvCnt++;
 			}
 			else{
-					if(VoiceArray[voiceNum].loudnessVal>=*(pADSRvals+2)){
-						VoiceArray[voiceNum].lState=3;}
-					else{VoiceArray[voiceNum].lState=6;}	
-				}
+					if(VoiceArray[voiceNum].loudnessVal==(*pADSRvals+2)){
+						VoiceArray[voiceNum].lState=4;//goes straight into sustain state
+					}
+					else if(VoiceArray[voiceNum].loudnessVal>(*(pADSRvals+2))){
+						VoiceArray[voiceNum].lState=3;}//releases to sustain
+					else{VoiceArray[voiceNum].lState=6;}//attacks to sustain	
+			}
 			if(VoiceArray[voiceNum].noteOn==0){
 				VoiceArray[voiceNum].fState=5;
 			}
@@ -394,24 +403,28 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 			return;
 			
 		}
+		
 		case 2:{//once attack has reached peak value
-			if(VoiceArray[voiceNum].lEnvCnt>= *(pADSRvals+1)){
+			if(VoiceArray[voiceNum].lEnvCnt>= (*(pADSRvals+1))){
 				VoiceArray[voiceNum].lState=3;
 			}
 			else{VoiceArray[voiceNum].lEnvCnt++;}
 			return;
 		}
+		
 		case 3:{//releasing to sustain
 			if(lReleaseToVal(voiceNum,*(pADSRvals+3),*(pADSRvals+2))==0){VoiceArray[voiceNum].lState=4;}
 			return;
 		}
+		
 		case 4:return;
 		case 5:{//releasing to 0
 			if(lReleaseToVal(voiceNum,*(pADSRvals+3),0)==0){VoiceArray[voiceNum].lState=0;}
 			return;
 		}
+		
 		case 6:{//attacking to sustain after delay
-			if(lAttackToVal(voiceNum+4,*(pADSRvals+4),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
+			if(lAttackToVal(voiceNum+4,*(pADSRvals+3),*(pADSRvals+2))==0){VoiceArray[voiceNum].lState=4;}
 		}
 		
 		
@@ -420,46 +433,58 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 
 }
 void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
-
 	switch(VoiceArray[voiceNum].fState){
 		case 0:{return;}
+		
 		case 1:{//attack
-			if(VoiceArray[voiceNum].fEnvCnt< *(pADSRvals+5)){
+			if(VoiceArray[voiceNum].fEnvCnt< (*(pADSRvals+5))){
 				if(fAttackToVal(voiceNum,*(pADSRvals+4),*(pADSRvals+8))==0){
 					VoiceArray[voiceNum].fState=2;
 				}
 				VoiceArray[voiceNum].fEnvCnt++;
 			}
 			else{
-				if(*VoiceArray[voiceNum].filterChannel>=*(pADSRvals+6)){
-					VoiceArray[voiceNum].fState=3;}
-				else{VoiceArray[voiceNum].fState=6;}
+					if(VoiceArray[voiceNum].filterVal==(*pADSRvals+6)){
+						VoiceArray[voiceNum].fState=4;//goes straight into sustain state
+					}
+					else if(VoiceArray[voiceNum].filterVal>(*(pADSRvals+6))){
+						VoiceArray[voiceNum].fState=3;}//releases to sustain
+					else{VoiceArray[voiceNum].fState=6;}//attacks to sustain	
 			}
 			if(VoiceArray[voiceNum].noteOn==0){
 				VoiceArray[voiceNum].fState=5;
 			}
+			
 			return;
+			
 		}
+		
 		case 2:{//once attack has reached peak value
-			if(VoiceArray[voiceNum].fEnvCnt>= *(pADSRvals+5)){
+			if(VoiceArray[voiceNum].fEnvCnt>= (*(pADSRvals+5))){
 				VoiceArray[voiceNum].fState=3;
 			}
 			else{VoiceArray[voiceNum].fEnvCnt++;}
 			return;
 		}
-		case 3:{//refeasing to sustain
+		
+		case 3:{//releasing to sustain
 			if(fReleaseToVal(voiceNum,*(pADSRvals+7),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
 			return;
 		}
-		case 4:return;//at sustain
-		case 5:{//refeasing to 0
+		
+		case 4:return;
+		case 5:{//releasing to 0
 			if(fReleaseToVal(voiceNum,*(pADSRvals+7),0)==0){VoiceArray[voiceNum].fState=0;}
-		return;}
-		case 6:{//attacking to sustain after delay
-			if(fAttackToVal(voiceNum,*(pADSRvals+4),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
+			return;
 		}
 		
+		case 6:{//attacking to sustain after delay
+			if(fAttackToVal(voiceNum+4,*(pADSRvals+7),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
+		}
+		
+		
 	}
+
 
 }
 /*
@@ -522,7 +547,7 @@ int main(void)
   MX_TIM2_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-	
+	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
 	HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
 	HAL_DMA_Init(&hdma_usart1_rx);
 	
@@ -559,6 +584,8 @@ int main(void)
 	
 	}
 	*/
+	HAL_GPIO_WritePin(GPIOA,GPIO_PIN_14,GPIO_PIN_RESET);
+	
 	uint8_t rescanCnt=0;
 	
   /* USER CODE END 2 */
@@ -583,20 +610,25 @@ int main(void)
 			channel=0;
 			EnvSampleFlag=0;
 			rescanCnt++;
-			if(rescanCnt>=10){
+			if(rescanCnt>=5){
 				
 
 				HAL_ADC_Stop_DMA(&hadc1);
 				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*9],9);
 				curBuf++;
 				if(curBuf==3){curBuf=0;}
+				Unison=HAL_GPIO_ReadPin(GPIOA,13);
 			}
-			if(rescanCnt>=11){
+			if(rescanCnt>=6){
 					rescanCnt=0;
 					//loudness
 					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18])/3)+1;//attack 
-					ADSRvals[1]=(ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/256;//delay
-					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*5;//sustain
+					ADSRvals[1]=((ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/128);//delay
+					if(ADSRvals[1]==0){ADSRvals[1]=1;}
+					else if(ADSRvals[1]<=48){ADSRvals[1]/=4;}
+					else{ADSRvals[1]=(ADSRvals[1]>>1)-84;}
+					
+					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*3;//sustain
 					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/3)+1;//release
 					//filter				
 					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26])*5;//influence
@@ -895,7 +927,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 128;
+  sConfigOC.Pulse = 1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -1117,10 +1149,36 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_14, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PA11 */
   GPIO_InitStruct.Pin = GPIO_PIN_11;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }

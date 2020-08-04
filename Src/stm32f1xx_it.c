@@ -132,7 +132,8 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+	HAL_GPIO_WritePin(GPIOA,GPIO_PIN_14,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
