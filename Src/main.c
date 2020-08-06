@@ -77,7 +77,7 @@ static void MX_ADC1_Init(void);
 
 uint8_t DacData[8]={0,0,0,0,0,0,0,0};
 uint8_t Unison=0;
-uint8_t lVel,fVel=0;
+uint8_t lVel,fVel=1;
 
 uint8_t portRate=0;
 
@@ -90,15 +90,15 @@ void setDacBufVal(uint8_t channel,uint16_t * dataIn){
 }
 	
 void writeToDac(){
-	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008,1);
 	
-	//frustratingly this is blocking.
+	HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008);//now with 100% non blocking!
 }
 
 
 struct voice{
 	uint8_t noteOn;
 	uint8_t noteCode;
+	uint16_t finalNoteVal;
 	uint8_t lState;
 	uint8_t fState;
 	uint8_t noteVel;
@@ -153,7 +153,12 @@ void noteCodeToDac(uint8_t curVoice){
 	//caps at c7 aka 2092.8hz
 	//uint16_t dataBuf=(log2((8.17525*(VoiceArray[curVoice].noteCode))*(32.7+fError[curVoice]))*(341+eError[curVoice]));
 	uint16_t dataBuf=actualNote*57;
-	setDacBufVal(curVoice,&dataBuf);
+	VoiceArray[curVoice].finalNoteVal=actualNote;
+	if(portRate==0){
+		setDacBufVal(curVoice,&dataBuf);
+		return;
+	}
+	
 	return;
 }
 
@@ -262,7 +267,17 @@ volatile uint8_t EnvSampleFlag=0;
 
 void timer1Complete(){
 	EnvSampleFlag=1;
-
+	/*
+	if(portRate!=0){
+		uint16_t buffer,curVal=0;
+		for(uint8_t channel=0;channel<4;channel++){
+			curVal=(DacData[channel<<1]>>8)|(DacData[(channel<<1)+1]);
+			if
+	
+			setDacBufVal(channel,&buffer)
+		}
+	}
+	*/
 }
 
 uint8_t lAttackToVal(uint8_t curVoice,uint16_t gradient,uint16_t limit){//returns 0 once the output reaches value
@@ -387,9 +402,9 @@ ADSRvals formatted 0:lAttack,1:lDelay,2:lSustain,3:lRelease,4:fAttack,5:fDelay,6
 
 void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 	switch(VoiceArray[voiceNum].lState){
-		case 0:{return;}
+		case (0):{return;}
 		
-		case 1:{//attack
+		case (1):{//attack
 			if(VoiceArray[voiceNum].lEnvCnt< (*(pADSRvals+1))){
 				if(lAttackToVal(voiceNum,*(pADSRvals),0xffff)==0){
 					VoiceArray[voiceNum].lState=2;
@@ -405,14 +420,14 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 					else{VoiceArray[voiceNum].lState=6;}//attacks to sustain	
 			}
 			if(VoiceArray[voiceNum].noteOn==0){
-				VoiceArray[voiceNum].fState=5;
+				VoiceArray[voiceNum].lState=5;
 			}
 			
 			return;
 			
 		}
 		
-		case 2:{//once attack has reached peak value
+		case (2):{//once attack has reached peak value
 			if(VoiceArray[voiceNum].lEnvCnt>= (*(pADSRvals+1))){
 				VoiceArray[voiceNum].lState=3;
 			}
@@ -420,7 +435,7 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 			return;
 		}
 		
-		case 3:{//releasing to sustain
+		case (3):{//releasing to sustain
 			if(lReleaseToVal(voiceNum,*(pADSRvals+3),*(pADSRvals+2))==0){VoiceArray[voiceNum].lState=4;}
 			return;
 		}
@@ -432,7 +447,7 @@ void lADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 		}
 		
 		case 6:{//attacking to sustain after delay
-			if(lAttackToVal(voiceNum+4,*(pADSRvals+3),*(pADSRvals+2))==0){VoiceArray[voiceNum].lState=4;}
+			if(lAttackToVal(voiceNum,*(pADSRvals+3),*(pADSRvals+2))==0){VoiceArray[voiceNum].lState=4;}
 		}
 		
 		
@@ -487,7 +502,7 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 		}
 		
 		case 6:{//attacking to sustain after delay
-			if(fAttackToVal(voiceNum+4,*(pADSRvals+7),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
+			if(fAttackToVal(voiceNum,*(pADSRvals+7),*(pADSRvals+6))==0){VoiceArray[voiceNum].fState=4;}
 		}
 		
 		
@@ -555,7 +570,7 @@ int main(void)
   MX_TIM2_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_SET);
 	HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
 	HAL_DMA_Init(&hdma_usart1_rx);
 	
@@ -592,7 +607,7 @@ int main(void)
 	
 	}
 	*/
-	HAL_GPIO_WritePin(GPIOA,GPIO_PIN_14,GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);
 	
 	uint8_t rescanCnt=0;
 	
@@ -625,28 +640,27 @@ int main(void)
 				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*9],9);
 				curBuf++;
 				if(curBuf==3){curBuf=0;}
-				Unison=HAL_GPIO_ReadPin(GPIOA,13);
+				Unison=HAL_GPIO_ReadPin(GPIOB,14);
 			}
 			if(rescanCnt>=6){
 					rescanCnt=0;
 					//loudness
 					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18])/3)+1;//attack 
 					ADSRvals[1]=((ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/128);//delay
-					if(ADSRvals[1]==0){ADSRvals[1]=1;}
-					else if(ADSRvals[1]<=48){ADSRvals[1]/=4;}
-					else{ADSRvals[1]=(ADSRvals[1]>>1)-84;}
+					ADSRvals[1]+=10;
+					
 					
 					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*3;//sustain
 					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/3)+1;//release
 					//filter				
 					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26])*5;//influence
-					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/(196605))+1;//attack
+					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/(184320))+1;//attack
 					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/256;//delay
 						if(ADSRvals[5]==0){ADSRvals[5]=1;}
 					else if(ADSRvals[5]<=48){ADSRvals[5]/=4;}
 					else{ADSRvals[5]=(ADSRvals[5]>>1)-84;}
-					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/13107;//sustain
-					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/196605)+1;//release
+					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/12288;//sustain
+					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/184320)+1;//release
 					
 					//printf("ADSR Values are A%u D%u S%u R%u filter: A%u D%u S%u R%u with influence %u",ADSRvals[0],ADSRvals[1],ADSRvals[2],ADSRvals[3],ADSRvals[4],ADSRvals[5],ADSRvals[6],ADSRvals[7],ADSRvals[8]);//you made it
 			}
@@ -1164,7 +1178,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
@@ -1173,23 +1187,23 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PB13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PA11 */
   GPIO_InitStruct.Pin = GPIO_PIN_11;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA13 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_14;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
