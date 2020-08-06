@@ -76,6 +76,7 @@ static void MX_ADC1_Init(void);
 
 
 uint8_t DacData[8]={0,0,0,0,0,0,0,0};
+uint8_t updateDacFlag=0;
 uint8_t Unison=0;
 uint8_t lVel,fVel=1;
 
@@ -178,9 +179,14 @@ void setNote(uint8_t note){
 		writeToDac();
 	}
 	else{
-	while((VoiceArray[curVoice].noteOn!=0)&&(VoiceArray[curVoice].noteCode!=note)){curVoice++;
-	if(curVoice==4){return;}}
 	
+	while((VoiceArray[curVoice].loudnessVal!=0)&&(VoiceArray[curVoice].noteCode!=note)){curVoice++;}
+	//first looks for the first channel thats off or last played the note we are looking to play
+	if(curVoice==4){//if it checks all voices and fails
+		while(VoiceArray[curVoice].noteOn!=0){curVoice++;}
+		//then just tries for any note that isnt on (in release to nothing (5) state it can be off and still making noise)
+		if(curVoice==4){return;}//gives up if it cant find any
+	}
 	VoiceArray[curVoice].noteOn=1;
 	VoiceArray[curVoice].lState=1;
 	VoiceArray[curVoice].fState=1;
@@ -189,7 +195,8 @@ void setNote(uint8_t note){
 	VoiceArray[curVoice].fEnvCnt=0;
 	VoiceArray[curVoice].noteVel=velBuf;
 	noteCodeToDac(curVoice);
-	writeToDac();}
+	updateDacFlag=1;
+	}
 	return;
 }
 
@@ -267,6 +274,10 @@ volatile uint8_t EnvSampleFlag=0;
 
 void timer1Complete(){
 	EnvSampleFlag=1;
+	if(updateDacFlag==1){
+		writeToDac();
+		updateDacFlag=0;
+	}
 	/*
 	if(portRate!=0){
 		uint16_t buffer,curVal=0;
