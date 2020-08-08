@@ -92,7 +92,8 @@ void setDacBufVal(uint8_t channel,uint16_t * dataIn){
 	
 void writeToDac(){
 	
-	HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008);//now with 100% non blocking!
+	//HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008);//is bugged, hold line low, stm cant handle dma i2c
+	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008,1);
 }
 
 
@@ -109,6 +110,8 @@ struct voice{
 	uint16_t filterVal;
 	volatile unsigned int * loudnessChannel;
 	volatile unsigned int * filterChannel;
+	uint8_t offsetError;
+	double multiConst;
 };
 
 uint8_t midiBuf,noteBuf,velBuf,curPos,status=0;
@@ -139,21 +142,17 @@ void initVoices(){
 		VoiceArray[v].filterVal=0;
 		*VoiceArray[v].loudnessChannel=0;
 		*VoiceArray[v].filterChannel=0;
+		VoiceArray[v].offsetError=0;
+		VoiceArray[v].multiConst=57;
 	}
 }
-double fError[4]={0,0,0,0};
-double eError[4]={0,0,0,0};
-/*
-f error is offset at zero
-e error is bits per octave error 
-*/
 
 void noteCodeToDac(uint8_t curVoice){
 	//minimum is c1 (32.7hz), it actually shifts all input up a octave
 	uint8_t actualNote=((int)(VoiceArray[curVoice].noteCode)-12)%72;
-	//caps at c7 aka 2092.8hz
+	//caps note below c7 around 2khz
 	//uint16_t dataBuf=(log2((8.17525*(VoiceArray[curVoice].noteCode))*(32.7+fError[curVoice]))*(341+eError[curVoice]));
-	uint16_t dataBuf=actualNote*57;
+	uint16_t dataBuf=(actualNote*VoiceArray[curVoice].multiConst)+VoiceArray[curVoice].offsetError;
 	VoiceArray[curVoice].finalNoteVal=actualNote;
 	if(portRate==0){
 		setDacBufVal(curVoice,&dataBuf);
@@ -273,11 +272,8 @@ void midiParse(){
 volatile uint8_t EnvSampleFlag=0;
 
 void timer1Complete(){
-	EnvSampleFlag=1;
-	if(updateDacFlag==1){
-		writeToDac();
-		updateDacFlag=0;
-	}
+	EnvSampleFlag++;
+	
 	/*
 	if(portRate!=0){
 		uint16_t buffer,curVal=0;
@@ -521,21 +517,100 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 
 
 }
-/*
-int readFreqCount(uint8_t channel){
-	
-}
-
-int testChannels(){
-	
-	uint8_t v;
-	for(v=0;v<8;v++){
-			DacData[v]=0;
+#define readPin GPIOA,GPIO_PIN_13
+uint32_t readFreqCount(){
+	uint32_t tickCount=0;
+	EnvSampleFlag=0;//ticks every 10ms(right?) so freqs can be based off that
+	GPIO_PinState prevState=HAL_GPIO_ReadPin(readPin);
+	GPIO_PinState newState;
+	while(EnvSampleFlag<100){
+		newState=HAL_GPIO_ReadPin(readPin);
+		if(prevState!=newState){
+			tickCount++;
+			prevState=newState;
+		}
 	}
-	v=0;
-
+	return(tickCount);
 }
-*/
+
+
+
+int fullTune(){
+	/*first 32.7hz(32700 ticks midi code 12)
+	then 261.63(26163) 
+	then 1046.5 104650)
+	*/
+	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_SET);
+	
+	const uint8_t tuneNoteCodes[3]={12,48,72};
+	const uint32_t tuneTickCounts[3]={32700,26163,104650};
+	
+	signed int curError;
+	uint8_t curVoice;
+	for(curVoice=0;curVoice<4;curVoice++){
+		*VoiceArray[curVoice].loudnessChannel=0;
+		*VoiceArray[curVoice].filterChannel=0;
+	
+	}
+	uint8_t curTuneStep;
+	uint32_t curTickCount;
+	for(curVoice=0;curVoice<4;curVoice++){
+		*VoiceArray[curVoice].loudnessChannel=1024;//set to full loudness
+		for(curTuneStep=0;curTuneStep<3;curTuneStep++){
+			curError=0xffff;
+			VoiceArray[curVoice].noteOn=tuneNoteCodes[curTuneStep];
+			
+			while(((curError>10)||(curError<-10))&&(VoiceArray[curVoice].multiConst<70)&&(VoiceArray[curVoice].offsetError>0)){
+				noteCodeToDac(curVoice);
+				writeToDac();
+			
+		
+			
+				EnvSampleFlag=0;
+				while(EnvSampleFlag<1){}//wait 10ms
+			
+				curTickCount=readFreqCount();
+				curError=curTickCount-tuneTickCounts[curVoice];
+				if(curTuneStep==0){
+					
+					if(curError>10){
+						VoiceArray[curVoice].offsetError--;
+					}
+					
+					if(curError<-10){
+						VoiceArray[curVoice].offsetError++;
+					}
+					
+					
+				}
+				
+				else{
+					if(curError>10){
+						VoiceArray[curVoice].multiConst--;
+					}
+					
+					else if(curError<-10){
+						VoiceArray[curVoice].multiConst++;
+					}
+					
+				}
+			}
+		
+		}
+		*VoiceArray[curVoice].loudnessChannel=0;
+		
+	}
+	if((VoiceArray[curVoice].multiConst<70)||(VoiceArray[curVoice].offsetError>0)){
+		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_RESET);
+		return(curVoice+1);
+	}
+	else{
+		HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);
+		return(0);
+	}
+}
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -633,14 +708,17 @@ int main(void)
 		if(HAL_UART_GetState(&huart1)!=HAL_UART_STATE_BUSY_RX){
 			HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
 		}//checking we are currently reciving data just incase the midi routine fell over
-		
+		if(updateDacFlag==1){
+			writeToDac();
+			updateDacFlag=0;
+		}
 		if(channel<4){
 			lADSRstep(channel,&ADSRvals[0]);
 			fADSRstep(channel,&ADSRvals[0]);
 			channel++;
 		}
 		
-		else if(EnvSampleFlag==1){
+		else if(EnvSampleFlag>1){
 			channel=0;
 			EnvSampleFlag=0;
 			rescanCnt++;
@@ -651,7 +729,7 @@ int main(void)
 				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*9],9);
 				curBuf++;
 				if(curBuf==3){curBuf=0;}
-				Unison=HAL_GPIO_ReadPin(GPIOB,14);
+				//Unison=HAL_GPIO_ReadPin(GPIOB,14);//fucks sake why doesnt it work
 			}
 			if(rescanCnt>=6){
 					rescanCnt=0;
@@ -666,10 +744,8 @@ int main(void)
 					//filter				
 					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26])*5;//influence
 					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/(184320))+1;//attack
-					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/256;//delay
-						if(ADSRvals[5]==0){ADSRvals[5]=1;}
-					else if(ADSRvals[5]<=48){ADSRvals[5]/=4;}
-					else{ADSRvals[5]=(ADSRvals[5]>>1)-84;}
+					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/128;//delay
+					ADSRvals[5]+=10;
 					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/12288;//sustain
 					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/184320)+1;//release
 					
@@ -1215,6 +1291,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = GPIO_PIN_11;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
