@@ -142,7 +142,7 @@ void initVoices(){
 		VoiceArray[v].filterVal=0;
 		*VoiceArray[v].loudnessChannel=0;
 		*VoiceArray[v].filterChannel=0;
-		VoiceArray[v].offsetError=0;
+		VoiceArray[v].offsetError=20;
 		VoiceArray[v].multiConst=57;
 	}
 }
@@ -269,7 +269,7 @@ void midiParse(){
 }}
 
 
-volatile uint16_t EnvSampleFlag=0;
+volatile uint32_t EnvSampleFlag=0;
 
 void timer1Complete(){
 	EnvSampleFlag++;
@@ -519,18 +519,20 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 }
 const uint32_t readPin = 1<<8;
 uint32_t readFreqCount(){
-	uint32_t tickCount=0;
+	uint32_t tickCount,timerCount=0;
 	EnvSampleFlag=0;//ticks every 10ms(right?) so freqs can be based off that
-	uint32_t prevState=GPIOA->IDR&readPin;
+
+	uint32_t prevState=HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
 	uint32_t newState=0;
-	while(EnvSampleFlag<973){
-		newState=GPIOA->IDR&readPin;
+	while(tickCount<100){
+		newState=HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
 		if(prevState!=newState){
 			tickCount++;
 			prevState=newState;
 		}
 	}
-	return(tickCount);
+	timerCount=EnvSampleFlag;
+	return(timerCount);
 }
 
 
@@ -542,12 +544,15 @@ int fullTune(){
 	*/
 	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_SET);
-	
 	//set light to yellow
+	
+	
+	
+	
 	HAL_UART_Abort_IT(&huart1);
 	//stop taking midi in
 	const uint8_t tuneNoteCodes[3]={12,48,72};
-	const uint32_t tuneTickCounts[3]={327,2616,1047};
+	const uint32_t tuneTickCounts[3]={270000,33620,8410};
 	
 	signed int curError;
 	uint8_t curVoice;
@@ -581,25 +586,25 @@ int fullTune(){
 				if(curTuneStep==0){
 					
 					if(curError>10){
-						VoiceArray[curVoice].offsetError--;
+						VoiceArray[curVoice].offsetError++;
 					}
 					
 					if(curError<-10){
-						VoiceArray[curVoice].offsetError++;
+						VoiceArray[curVoice].offsetError--;
 					}		
 				}
 				
 				else{
 					if(curError>10){
-						VoiceArray[curVoice].multiConst--;
-					}
-					
-					else if(curError<-10){
 						VoiceArray[curVoice].multiConst++;
 					}
 					
+					else if(curError<-10){
+						VoiceArray[curVoice].multiConst--;
+					}
+					
 				}
-			}while(((curError>10)||(curError<-10))&&(VoiceArray[curVoice].multiConst<70));
+			}while(((curError>100)||(curError<-100))&&(VoiceArray[curVoice].multiConst<70));
 		
 		}
 		*VoiceArray[curVoice].loudnessChannel=0;
@@ -656,7 +661,7 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART1_UART_Init();
-  MX_TIM1_Init();
+  
   MX_TIM2_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
@@ -672,11 +677,13 @@ int main(void)
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_2);
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_3);
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_4);
-	HAL_TIM_Base_Start_IT(&htim1);
 	
 	uint16_t ADSRvals[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint16_t ADSRbuf[27]={180,2048,2048,180,180,2048,2048,180,2048,180,2048,2048,180,180,2048,2048,180,2048,180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint8_t curBuf=0;
+	MX_TIM1_Init();
+	HAL_TIM_Base_Start_IT(&htim1);
+	
 	initVoices();
 		
 	
@@ -722,7 +729,7 @@ int main(void)
 			channel++;
 		}
 		
-		else if(EnvSampleFlag>1){
+		else if(EnvSampleFlag>1000){
 			channel=0;
 			EnvSampleFlag=0;
 			rescanCnt++;
@@ -971,7 +978,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 10000;
+  htim1.Init.Prescaler = 10;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 36;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
