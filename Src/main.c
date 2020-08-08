@@ -110,7 +110,7 @@ struct voice{
 	uint16_t filterVal;
 	volatile unsigned int * loudnessChannel;
 	volatile unsigned int * filterChannel;
-	uint8_t offsetError;
+	signed int offsetError;
 	double multiConst;
 };
 
@@ -269,7 +269,7 @@ void midiParse(){
 }}
 
 
-volatile uint8_t EnvSampleFlag=0;
+volatile uint16_t EnvSampleFlag=0;
 
 void timer1Complete(){
 	EnvSampleFlag++;
@@ -517,14 +517,14 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 
 
 }
-#define readPin GPIOA,GPIO_PIN_13
+const uint32_t readPin = 1<<8;
 uint32_t readFreqCount(){
 	uint32_t tickCount=0;
 	EnvSampleFlag=0;//ticks every 10ms(right?) so freqs can be based off that
-	GPIO_PinState prevState=HAL_GPIO_ReadPin(readPin);
-	GPIO_PinState newState;
-	while(EnvSampleFlag<100){
-		newState=HAL_GPIO_ReadPin(readPin);
+	uint32_t prevState=GPIOA->IDR&readPin;
+	uint32_t newState=0;
+	while(EnvSampleFlag<973){
+		newState=GPIOA->IDR&readPin;
 		if(prevState!=newState){
 			tickCount++;
 			prevState=newState;
@@ -543,14 +543,17 @@ int fullTune(){
 	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_SET);
 	
+	//set light to yellow
+	HAL_UART_Abort_IT(&huart1);
+	//stop taking midi in
 	const uint8_t tuneNoteCodes[3]={12,48,72};
-	const uint32_t tuneTickCounts[3]={32700,26163,104650};
+	const uint32_t tuneTickCounts[3]={327,2616,1047};
 	
 	signed int curError;
 	uint8_t curVoice;
 	for(curVoice=0;curVoice<4;curVoice++){
 		*VoiceArray[curVoice].loudnessChannel=0;
-		*VoiceArray[curVoice].filterChannel=0;
+		*VoiceArray[curVoice].filterChannel=1024;
 	
 	}
 	uint8_t curTuneStep;
@@ -559,9 +562,9 @@ int fullTune(){
 		*VoiceArray[curVoice].loudnessChannel=1024;//set to full loudness
 		for(curTuneStep=0;curTuneStep<3;curTuneStep++){
 			curError=0xffff;
-			VoiceArray[curVoice].noteOn=tuneNoteCodes[curTuneStep];
+			VoiceArray[curVoice].noteCode=tuneNoteCodes[curTuneStep];
 			
-			while(((curError>10)||(curError<-10))&&(VoiceArray[curVoice].multiConst<70)&&(VoiceArray[curVoice].offsetError>0)){
+			do{
 				noteCodeToDac(curVoice);
 				writeToDac();
 			
@@ -571,7 +574,10 @@ int fullTune(){
 				while(EnvSampleFlag<1){}//wait 10ms
 			
 				curTickCount=readFreqCount();
-				curError=curTickCount-tuneTickCounts[curVoice];
+				
+
+				curError=curTickCount;
+				curError-=tuneTickCounts[curVoice];
 				if(curTuneStep==0){
 					
 					if(curError>10){
@@ -580,9 +586,7 @@ int fullTune(){
 					
 					if(curError<-10){
 						VoiceArray[curVoice].offsetError++;
-					}
-					
-					
+					}		
 				}
 				
 				else{
@@ -595,7 +599,7 @@ int fullTune(){
 					}
 					
 				}
-			}
+			}while(((curError>10)||(curError<-10))&&(VoiceArray[curVoice].multiConst<70));
 		
 		}
 		*VoiceArray[curVoice].loudnessChannel=0;
@@ -693,8 +697,8 @@ int main(void)
 	
 	}
 	*/
-	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);
 	
+	fullTune();
 	uint8_t rescanCnt=0;
 	
   /* USER CODE END 2 */
@@ -1287,16 +1291,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PA8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PA11 */
   GPIO_InitStruct.Pin = GPIO_PIN_11;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA13 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
