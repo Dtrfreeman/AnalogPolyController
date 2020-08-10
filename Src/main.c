@@ -73,7 +73,8 @@ static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
-
+#define greenLed GPIOB,GPIO_PIN_13
+#define redLed GPIOB,GPIO_PIN_13
 
 uint8_t DacData[8]={0,0,0,0,0,0,0,0};
 uint8_t updateDacFlag=0;
@@ -272,7 +273,7 @@ void midiParse(){
 volatile uint32_t EnvSampleFlag=0;
 
 void timer1Complete(){
-	EnvSampleFlag++;
+ 	EnvSampleFlag++;
 	
 	/*
 	if(portRate!=0){
@@ -517,33 +518,30 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 
 
 }
-const uint32_t readPin = 1<<8;
-uint32_t readFreqCount(){
-	uint32_t tickCount,timerCount=0;
-	EnvSampleFlag=0;//ticks every 10ms(right?) so freqs can be based off that
 
-	uint32_t prevState=HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
-	uint32_t newState=0;
-	while(tickCount<100){
-		newState=HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
-		if(prevState!=newState){
-			tickCount++;
-			prevState=newState;
-		}
+uint32_t readFreqCount(){
+	volatile uint32_t timerCount=0;
+
+	HAL_TIM_Base_Start_IT(&htim1);
+	
+	
+	HAL_TIM_IC_Start_DMA(&htim1,TIM_CHANNEL_1,&timerCount,2);
+	while(timerCount==0){
+		timerCount=TIM1->CCR1;
 	}
-	timerCount=EnvSampleFlag;
+	HAL_TIM_IC_Stop_DMA(&htim1,TIM_CHANNEL_1);
 	return(timerCount);
 }
 
 
 
 int fullTune(){
-	/*first 32.7hz(32700 ticks midi code 12)
-	then 261.63(26163) 
-	then 1046.5 104650)
+	/*first 32.7hz(midi code 12)
+	then 261.63
+	then 1046.5 
 	*/
-	HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(redLed,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(greenLed,GPIO_PIN_SET);
 	//set light to yellow
 	
 	
@@ -552,7 +550,7 @@ int fullTune(){
 	HAL_UART_Abort_IT(&huart1);
 	//stop taking midi in
 	const uint8_t tuneNoteCodes[3]={12,48,72};
-	const uint32_t tuneTickCounts[3]={270000,33620,8410};
+	const uint32_t tuneTickCounts[3]={30581,3821,956};
 	
 	signed int curError;
 	uint8_t curVoice;
@@ -572,12 +570,8 @@ int fullTune(){
 			do{
 				noteCodeToDac(curVoice);
 				writeToDac();
-			
-		
-			
-				EnvSampleFlag=0;
-				while(EnvSampleFlag<1){}//wait 10ms
-			
+
+				
 				curTickCount=readFreqCount();
 				
 
@@ -596,11 +590,11 @@ int fullTune(){
 				
 				else{
 					if(curError>10){
-						VoiceArray[curVoice].multiConst++;
+						VoiceArray[curVoice].multiConst--;
 					}
 					
 					else if(curError<-10){
-						VoiceArray[curVoice].multiConst--;
+						VoiceArray[curVoice].multiConst++;
 					}
 					
 				}
@@ -611,11 +605,13 @@ int fullTune(){
 		
 	}
 	if((VoiceArray[curVoice].multiConst<70)||(VoiceArray[curVoice].offsetError>0)){
-		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(greenLed,GPIO_PIN_RESET);
+		TIM1->ARR=3600;
 		return(curVoice+1);
 	}
 	else{
-		HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(redLed,GPIO_PIN_RESET);
+		TIM1->ARR=3600;
 		return(0);
 	}
 }
@@ -661,11 +657,11 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART1_UART_Init();
-  
+  MX_TIM1_Init();
   MX_TIM2_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-	HAL_GPIO_WritePin(GPIOB,GPIO_PIN_13,GPIO_PIN_SET);
+	HAL_GPIO_WritePin(greenLed,GPIO_PIN_SET);
 	HAL_UART_Receive_DMA(&huart1,&midiBuf,1);
 	HAL_DMA_Init(&hdma_usart1_rx);
 	
@@ -678,10 +674,11 @@ int main(void)
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_3);
 	HAL_TIM_OC_Start(&htim4,TIM_CHANNEL_4);
 	
-	uint16_t ADSRvals[9]={180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
-	uint16_t ADSRbuf[27]={180,2048,2048,180,180,2048,2048,180,2048,180,2048,2048,180,180,2048,2048,180,2048,180,2048,2048,180,180,2048,2048,180,2048};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
+	HAL_TIM_Base_Init(&htim1);
+	uint16_t ADSRvals[10]={180,2048,2048,180,180,2048,2048,180,2048,0};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
+	uint16_t ADSRbuf[30]={180,2048,2048,180,180,2048,2048,180,2048,0,180,2048,2048,180,180,2048,2048,180,2048,0,180,2048,2048,180,180,2048,2048,180,2048,0};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint8_t curBuf=0;
-	MX_TIM1_Init();
+	
 	HAL_TIM_Base_Start_IT(&htim1);
 	
 	initVoices();
@@ -705,7 +702,8 @@ int main(void)
 	}
 	*/
 	
-	fullTune();
+	//fullTune();
+	TIM1->ARR=500;
 	uint8_t rescanCnt=0;
 	
   /* USER CODE END 2 */
@@ -729,7 +727,7 @@ int main(void)
 			channel++;
 		}
 		
-		else if(EnvSampleFlag>1000){
+		else if(EnvSampleFlag>10){
 			channel=0;
 			EnvSampleFlag=0;
 			rescanCnt++;
@@ -737,29 +735,31 @@ int main(void)
 				
 
 				HAL_ADC_Stop_DMA(&hadc1);
-				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*9],9);
+				HAL_ADC_Start_DMA(&hadc1,(uint32_t *)&ADSRbuf[curBuf*10],10);
 				curBuf++;
 				if(curBuf==3){curBuf=0;}
-				//Unison=HAL_GPIO_ReadPin(GPIOB,14);//fucks sake why doesnt it work
+				//Unison=HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_14);//fucks sake why doesnt it work
+				if(HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_15)==0){fullTune();}
+				
 			}
 			if(rescanCnt>=6){
 					rescanCnt=0;
 					//loudness
-					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[9]+ADSRbuf[18])/3)+1;//attack 
-					ADSRvals[1]=((ADSRbuf[1]+ADSRbuf[10]+ADSRbuf[19])/128);//delay
+					ADSRvals[0]=((ADSRbuf[0]+ADSRbuf[10]+ADSRbuf[20])/3)+1;//attack 
+					ADSRvals[1]=((ADSRbuf[1]+ADSRbuf[11]+ADSRbuf[21])/128);//delay
 					ADSRvals[1]+=10;
 					
 					
-					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[11]+ADSRbuf[20])*3;//sustain
-					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[12]+ADSRbuf[21])/3)+1;//release
+					ADSRvals[2]=(ADSRbuf[2]+ADSRbuf[12]+ADSRbuf[22])*3;//sustain
+					ADSRvals[3]=((ADSRbuf[3]+ADSRbuf[13]+ADSRbuf[23])/3)+1;//release
 					//filter				
-					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[17]+ADSRbuf[26])*5;//influence
-					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[13]+ADSRbuf[22])*ADSRvals[8]/(184320))+1;//attack
-					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[14]+ADSRbuf[23])/128;//delay
+					ADSRvals[8]=(ADSRbuf[8]+ADSRbuf[18]+ADSRbuf[28])*5;//influence
+					ADSRvals[4]=((ADSRbuf[4]+ADSRbuf[14]+ADSRbuf[24])*ADSRvals[8]/(184320))+1;//attack
+					ADSRvals[5]=(ADSRbuf[5]+ADSRbuf[15]+ADSRbuf[25])/128;//delay
 					ADSRvals[5]+=10;
-					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[15]+ADSRbuf[24])*ADSRvals[8]/12288;//sustain
-					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[16]+ADSRbuf[25])*ADSRvals[8]/184320)+1;//release
-					
+					ADSRvals[6]=(ADSRbuf[6]+ADSRbuf[16]+ADSRbuf[26])*ADSRvals[8]/12288;//sustain
+					ADSRvals[7]=((ADSRbuf[7]+ADSRbuf[17]+ADSRbuf[27])*ADSRvals[8]/184320)+1;//release
+					ADSRvals[9]=(ADSRbuf[9]+ADSRbuf[19]+ADSRbuf[29])/3;
 					//printf("ADSR Values are A%u D%u S%u R%u filter: A%u D%u S%u R%u with influence %u",ADSRvals[0],ADSRvals[1],ADSRvals[2],ADSRvals[3],ADSRvals[4],ADSRvals[5],ADSRvals[6],ADSRvals[7],ADSRvals[8]);//you made it
 			}
 		}
@@ -978,9 +978,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 10;
+  htim1.Init.Prescaler = 72;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 36;
+  htim1.Init.Period = 5000;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -993,7 +993,7 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
   {
@@ -1292,17 +1292,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PB14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  /*Configure GPIO pins : PB14 PB15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_14|GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA11 */
   GPIO_InitStruct.Pin = GPIO_PIN_11;
