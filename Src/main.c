@@ -47,7 +47,6 @@ ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c2;
-DMA_HandleTypeDef hdma_i2c2_tx;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
@@ -219,7 +218,7 @@ void releaseNote(uint8_t note){
 	return;
 }
 
-void midiParse(){
+void midiParse(void){
 	switch(curPos){
 			case 0:{if(midiBuf>=0x80){
 					status=midiBuf;
@@ -272,7 +271,7 @@ void midiParse(){
 
 volatile uint32_t EnvSampleFlag=0;
 
-void timer1Complete(){
+void timer1Complete(void){
  	EnvSampleFlag++;
 	
 	/*
@@ -515,21 +514,25 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 		
 		
 	}
-
-
 }
 
-uint32_t readFreqCount(){
-	volatile uint32_t timerCount=0;
-
-	HAL_TIM_Base_Start_IT(&htim1);
-	
-	
-	HAL_TIM_IC_Start_DMA(&htim1,TIM_CHANNEL_1,&timerCount,2);
-	while(timerCount==0){
-		timerCount=TIM1->CCR1;
+uint16_t timeStamps[2]={0,0};
+uint8_t timeStampCnt=2;
+void gotIC(void){
+	if(timeStampCnt<2){
+			timeStamps[timeStampCnt]=TIM1->CCR1;
 	}
-	HAL_TIM_IC_Stop_DMA(&htim1,TIM_CHANNEL_1);
+}
+	
+
+
+uint32_t readFreqCount(void){
+	volatile uint32_t timerCount=0;
+	timeStampCnt=0;
+	while(timeStampCnt<2){}
+	if(timeStamps[1]>timeStamps[0]){timerCount=timeStamps[1]-timeStamps[0];}
+	else{timerCount=readFreqCount();}
+	
 	return(timerCount);
 }
 
@@ -548,9 +551,10 @@ int fullTune(){
 	
 	
 	HAL_UART_Abort_IT(&huart1);
+	HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_1);
 	//stop taking midi in
 	const uint8_t tuneNoteCodes[3]={12,48,72};
-	const uint32_t tuneTickCounts[3]={30581,3821,956};
+	const uint32_t tuneTickCounts[3]={3058,382,96};
 	
 	signed int curError;
 	uint8_t curVoice;
@@ -606,12 +610,12 @@ int fullTune(){
 	}
 	if((VoiceArray[curVoice].multiConst<70)||(VoiceArray[curVoice].offsetError>0)){
 		HAL_GPIO_WritePin(greenLed,GPIO_PIN_RESET);
-		TIM1->ARR=3600;
+		
 		return(curVoice+1);
 	}
 	else{
 		HAL_GPIO_WritePin(redLed,GPIO_PIN_RESET);
-		TIM1->ARR=3600;
+		
 		return(0);
 	}
 }
@@ -693,7 +697,7 @@ int main(void)
 	}
 	channel=0;
 	
-	HAL_DMA_Init(&hdma_i2c2_tx);
+
 	HAL_I2C_Init(&hi2c2);
 	/*
 	for(uint8_t i=0;i<8;i++){
@@ -702,8 +706,8 @@ int main(void)
 	}
 	*/
 	
-	//fullTune();
-	TIM1->ARR=500;
+	fullTune();
+	TIM1->ARR=50;
 	uint8_t rescanCnt=0;
 	
   /* USER CODE END 2 */
@@ -973,14 +977,15 @@ static void MX_TIM1_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM1_Init 1 */
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 72;
+  htim1.Init.Prescaler = 720;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 5000;
+  htim1.Init.Period = 65535;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -993,9 +998,21 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_IC_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 4;
+  if (HAL_TIM_IC_ConfigChannel(&htim1, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -1248,9 +1265,6 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-  /* DMA1_Channel4_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
   /* DMA1_Channel5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
