@@ -75,25 +75,25 @@ static void MX_ADC1_Init(void);
 #define greenLed GPIOB,GPIO_PIN_13
 #define redLed GPIOB,GPIO_PIN_13
 
-uint8_t DacData[8]={0,0,0,0,0,0,0,0};
-uint8_t updateDacFlag=0;
-uint8_t Unison=0;
-uint8_t lVel,fVel=1;
+volatile uint8_t DacData[8]={0,0,0,0,0,0,0,0};
+volatile uint8_t updateDacFlag=0;
+volatile uint8_t Unison=0;
+volatile uint8_t lVel,fVel=1;
 
 uint8_t portRate=0;
 
-void setDacBufVal(uint8_t channel,uint16_t * dataIn){
+void setDacBufVal(uint8_t channel,uint16_t dataIn){
 	
 	
-	DacData[channel<<1]=((*dataIn)>>8)&0x0f;
-	DacData[(channel<<1)+1]=(*dataIn)&0xff;
+	DacData[channel<<1]=((0xf00&dataIn)>>8);
+	DacData[(channel<<1)+1]=dataIn&0xff;
 	
 }
 	
 void writeToDac(){
 	
 	//HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008);//is bugged, hold line low, stm cant handle dma i2c
-	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008,1);
+	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,(uint8_t *)&(DacData[0]),8,0);
 }
 
 
@@ -153,11 +153,11 @@ void noteCodeToDac(uint8_t curVoice){
 	//caps note below c7 around 2khz
 	//uint16_t dataBuf=(log2((8.17525*(VoiceArray[curVoice].noteCode))*(32.7+fError[curVoice]))*(341+eError[curVoice]));
 	uint16_t dataBuf=(actualNote*VoiceArray[curVoice].multiConst)+VoiceArray[curVoice].offsetError;
-	VoiceArray[curVoice].finalNoteVal=actualNote;
-	if(portRate==0){
-		setDacBufVal(curVoice,&dataBuf);
-		return;
-	}
+	VoiceArray[curVoice].finalNoteVal=dataBuf;
+	//if(portRate==0){
+		setDacBufVal(curVoice,dataBuf);
+		//return;
+	//}
 	
 	return;
 }
@@ -516,11 +516,12 @@ void fADSRstep(uint8_t voiceNum,uint16_t * pADSRvals ){
 	}
 }
 
-uint16_t timeStamps[2]={0,0};
-uint8_t timeStampCnt=2;
+volatile uint16_t timeStamps[2]={0,0};
+volatile uint8_t timeStampCnt=2;
 void gotIC(void){
 	if(timeStampCnt<2){
-			timeStamps[timeStampCnt]=TIM1->CCR1;
+		timeStamps[timeStampCnt]=TIM1->CCR1;
+		timeStampCnt++;	
 	}
 }
 	
@@ -529,9 +530,13 @@ void gotIC(void){
 uint32_t readFreqCount(void){
 	volatile uint32_t timerCount=0;
 	timeStampCnt=0;
-	while(timeStampCnt<2){}
-	if(timeStamps[1]>timeStamps[0]){timerCount=timeStamps[1]-timeStamps[0];}
-	else{timerCount=readFreqCount();}
+	while(timeStampCnt!=2){}
+	if(timeStamps[1]>timeStamps[0]){
+		timerCount=timeStamps[1]-timeStamps[0];
+	}
+	else{
+		timerCount=readFreqCount();
+	}
 	
 	return(timerCount);
 }
@@ -557,64 +562,66 @@ int fullTune(){
 	const uint32_t tuneTickCounts[3]={3058,382,96};
 	
 	signed int curError;
-	uint8_t curVoice;
-	for(curVoice=0;curVoice<4;curVoice++){
-		*VoiceArray[curVoice].loudnessChannel=0;
-		*VoiceArray[curVoice].filterChannel=1024;
+	volatile uint8_t curTuneVoice;
+	for(curTuneVoice=0;curTuneVoice<4;curTuneVoice++){
+		*VoiceArray[curTuneVoice].loudnessChannel=0;
+		*VoiceArray[curTuneVoice].filterChannel=1023;
 	
 	}
 	uint8_t curTuneStep;
 	uint32_t curTickCount;
-	for(curVoice=0;curVoice<4;curVoice++){
-		*VoiceArray[curVoice].loudnessChannel=1024;//set to full loudness
+	for(curTuneVoice=0;curTuneVoice<4;curTuneVoice++){
+		
+		*VoiceArray[curTuneVoice].loudnessChannel=1023;
+		
 		for(curTuneStep=0;curTuneStep<3;curTuneStep++){
 			curError=0xffff;
-			VoiceArray[curVoice].noteCode=tuneNoteCodes[curTuneStep];
+			VoiceArray[curTuneVoice].noteCode=tuneNoteCodes[curTuneStep];
 			
 			do{
-				noteCodeToDac(curVoice);
+				noteCodeToDac(curTuneVoice);
 				writeToDac();
 
 				
 				curTickCount=readFreqCount();
 				
 
-				curError=curTickCount;
-				curError-=tuneTickCounts[curVoice];
+				curError=curTickCount-tuneTickCounts[curTuneVoice];
+				
 				if(curTuneStep==0){
 					
 					if(curError>10){
-						VoiceArray[curVoice].offsetError++;
+						VoiceArray[curTuneVoice].offsetError++;
 					}
 					
-					if(curError<-10){
-						VoiceArray[curVoice].offsetError--;
+					else if(curError<-10){
+						VoiceArray[curTuneVoice].offsetError--;
 					}		
 				}
 				
 				else{
 					if(curError>10){
-						VoiceArray[curVoice].multiConst--;
+						VoiceArray[curTuneVoice].multiConst--;
 					}
 					
 					else if(curError<-10){
-						VoiceArray[curVoice].multiConst++;
+						VoiceArray[curTuneVoice].multiConst++;
 					}
 					
 				}
-			}while(((curError>100)||(curError<-100))&&(VoiceArray[curVoice].multiConst<70));
+			}while(((curError>10)||(curError<-10)));
 		
 		}
-		*VoiceArray[curVoice].loudnessChannel=0;
+		*VoiceArray[curTuneVoice].loudnessChannel=0;
 		
 	}
-	if((VoiceArray[curVoice].multiConst<70)||(VoiceArray[curVoice].offsetError>0)){
-		HAL_GPIO_WritePin(greenLed,GPIO_PIN_RESET);
+	if((VoiceArray[curTuneVoice].multiConst<70)||(VoiceArray[curTuneVoice].offsetError>0)){
+		HAL_GPIO_WritePin(greenLed,GPIO_PIN_RESET);//light go red
 		
-		return(curVoice+1);
+		return(curTuneVoice+1);
 	}
 	else{
-		HAL_GPIO_WritePin(redLed,GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(redLed,GPIO_PIN_RESET);//go green
 		
 		return(0);
 	}
@@ -705,7 +712,8 @@ int main(void)
 	
 	}
 	*/
-	
+	setDacBufVal(0,1000);
+	writeToDac();
 	fullTune();
 	TIM1->ARR=50;
 	uint8_t rescanCnt=0;
@@ -1011,7 +1019,7 @@ static void MX_TIM1_Init(void)
   sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 4;
+  sConfigIC.ICFilter = 0;
   if (HAL_TIM_IC_ConfigChannel(&htim1, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
