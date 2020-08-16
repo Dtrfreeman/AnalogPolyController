@@ -75,7 +75,7 @@ static void MX_ADC1_Init(void);
 #define greenLed GPIOB,GPIO_PIN_13
 #define redLed GPIOB,GPIO_PIN_13
 
-volatile uint8_t DacData[8]={0,0,0,0,0,0,0,0};
+static uint8_t DacData[8]={0,0,0,0,0,0,0,0};
 volatile uint8_t updateDacFlag=0;
 volatile uint8_t Unison=0;
 volatile uint8_t lVel,fVel=1;
@@ -93,7 +93,11 @@ void setDacBufVal(uint8_t channel,uint16_t dataIn){
 void writeToDac(){
 	
 	//HAL_I2C_Master_Transmit_DMA(&hi2c2,0x00c2,(uint8_t *)&DacData[0],0x0008);//is bugged, hold line low, stm cant handle dma i2c
-	HAL_I2C_Master_Transmit(&hi2c2,0x00c2,(uint8_t *)&(DacData[0]),8,0);
+	while(HAL_I2C_Master_Transmit(&hi2c2,0x00c2,&(DacData[0]),8,2)==HAL_ERROR){
+		HAL_I2C_DeInit(&hi2c2);
+		HAL_I2C_Init(&hi2c2);
+	}
+	
 }
 
 
@@ -115,7 +119,7 @@ struct voice{
 };
 
 uint8_t midiBuf,noteBuf,velBuf,curPos,status=0;
-volatile struct voice VoiceArray[4];
+static struct voice VoiceArray[4];
 
 void initVoices(){
 	
@@ -269,7 +273,7 @@ void midiParse(void){
 }}
 
 
-volatile uint32_t EnvSampleFlag=0;
+static uint32_t EnvSampleFlag=0;
 
 void timer1Complete(void){
  	EnvSampleFlag++;
@@ -528,6 +532,10 @@ void gotIC(void){
 
 
 uint32_t readFreqCount(void){
+	
+	HAL_TIM_Base_Start_IT(&htim1);
+	HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_1);
+	
 	volatile uint32_t timerCount=0;
 	timeStampCnt=0;
 	while(timeStampCnt!=2){}
@@ -537,6 +545,8 @@ uint32_t readFreqCount(void){
 	else{
 		timerCount=readFreqCount();
 	}
+	HAL_TIM_Base_Stop_IT(&htim1);
+	HAL_TIM_IC_Stop_IT(&htim1,TIM_CHANNEL_1);
 	
 	return(timerCount);
 }
@@ -556,7 +566,6 @@ int fullTune(){
 	
 	
 	HAL_UART_Abort_IT(&huart1);
-	HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_1);
 	//stop taking midi in
 	const uint8_t tuneNoteCodes[3]={12,48,72};
 	const uint32_t tuneTickCounts[3]={3058,382,96};
@@ -565,14 +574,14 @@ int fullTune(){
 	volatile uint8_t curTuneVoice;
 	for(curTuneVoice=0;curTuneVoice<4;curTuneVoice++){
 		*VoiceArray[curTuneVoice].loudnessChannel=0;
-		*VoiceArray[curTuneVoice].filterChannel=1023;
+		*VoiceArray[curTuneVoice].filterChannel=1024;
 	
 	}
 	uint8_t curTuneStep;
 	uint32_t curTickCount;
 	for(curTuneVoice=0;curTuneVoice<4;curTuneVoice++){
 		
-		*VoiceArray[curTuneVoice].loudnessChannel=1023;
+		*VoiceArray[curTuneVoice].loudnessChannel=1024;
 		
 		for(curTuneStep=0;curTuneStep<3;curTuneStep++){
 			curError=0xffff;
@@ -690,7 +699,7 @@ int main(void)
 	uint16_t ADSRbuf[30]={180,2048,2048,180,180,2048,2048,180,2048,0,180,2048,2048,180,180,2048,2048,180,2048,0,180,2048,2048,180,180,2048,2048,180,2048,0};//lAttack,lDelay,lSustain,lRelease,fAttack,fDelay,fSustain,fRelease,fInfluence
 	uint8_t curBuf=0;
 	
-	HAL_TIM_Base_Start_IT(&htim1);
+	
 	
 	initVoices();
 		
@@ -705,14 +714,19 @@ int main(void)
 	channel=0;
 	
 
+	
 	HAL_I2C_Init(&hi2c2);
-	/*
+	
 	for(uint8_t i=0;i<8;i++){
-		HAL_I2C_IsDeviceReady(&hi2c2,0x00c0|i<<1,1,2);
+		while(hi2c2.State!=HAL_I2C_STATE_READY){}
+		while(HAL_I2C_IsDeviceReady(&hi2c2,0x00c0|i<<1,1,2)==HAL_ERROR){
+			HAL_I2C_DeInit(&hi2c2);
+			HAL_I2C_Init(&hi2c2);
+		}
 	
 	}
-	*/
-	setDacBufVal(0,1000);
+	
+	setDacBufVal(0,4000);
 	writeToDac();
 	fullTune();
 	TIM1->ARR=50;
