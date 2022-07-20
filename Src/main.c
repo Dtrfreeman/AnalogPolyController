@@ -562,14 +562,11 @@ int fullTune(){
 	HAL_GPIO_WritePin(greenLed,GPIO_PIN_SET);
 	//set light to yellow
 	
-	
-	
-	
 	HAL_UART_Abort_IT(&huart1);
 	//stop taking midi in
 	const uint8_t tuneNoteCodes[3]={12,48,72};
 	const uint32_t tuneTickCounts[3]={3058,382,96};
-	
+	//known note codes and number of ticks (inverse of frequency) that note should take
 	signed int curError;
 	volatile uint8_t curTuneVoice;
 	for(curTuneVoice=0;curTuneVoice<4;curTuneVoice++){
@@ -582,33 +579,32 @@ int fullTune(){
 	for(curTuneVoice=0;curTuneVoice<4;curTuneVoice++){
 		
 		*VoiceArray[curTuneVoice].loudnessChannel=1024;
-		
+//set that voice's volume to the maximum so the microcontroller can read it 	
 		for(curTuneStep=0;curTuneStep<3;curTuneStep++){
-			curError=0xffff;
+
 			VoiceArray[curTuneVoice].noteCode=tuneNoteCodes[curTuneStep];
-			
+      //set the current note code to the note we're tuning for		 
 			do{
 				noteCodeToDac(curTuneVoice);
 				writeToDac();
-
+//uses the current tuning parameters to write a voltage that should be close
 				
-				curTickCount=readFreqCount();
+				curTickCount=readFreqCount();//read the frequency of that note
 				
-
 				curError=curTickCount-tuneTickCounts[curTuneVoice];
-				
+				//compare it against the known frequency that note should have
 				if(curTuneStep==0){
-					
+          //tuning starts with the lowest note which has a code of zero 
+          //here the offset is trimmed
 					if(curError>10){
 						VoiceArray[curTuneVoice].offsetError++;
 					}
-					
 					else if(curError<-10){
 						VoiceArray[curTuneVoice].offsetError--;
 					}		
 				}
 				
-				else{
+				else{//after the lowest note the note to voltage gradient is trimmed 
 					if(curError>10){
 						VoiceArray[curTuneVoice].multiConst--;
 					}
@@ -616,8 +612,8 @@ int fullTune(){
 					else if(curError<-10){
 						VoiceArray[curTuneVoice].multiConst++;
 					}
-					
-				}
+					//this could be done with a polynomial for improved range 
+        }
 			}while(((curError>10)||(curError<-10)));
 		
 		}
